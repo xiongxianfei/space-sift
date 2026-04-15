@@ -38,18 +38,27 @@ Use `ci` work only for GitHub Actions, automation, or other delivery pipeline ch
 Expected flow:
 `scope -> minimal workflow change -> local validation when possible -> workflow validation -> document required status checks`
 
+Current baseline CI checks for this repo:
+- `npm ci`
+- `npm run lint`
+- `npm run test`
+- `npm run build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+
 ## Release workflow
 
-The default release path for this template is tag-driven:
+The intended public release path for `Space Sift` is:
 
 1. ensure `main` is green
-2. confirm version and compatibility notes
-3. verify release readiness
-4. create and push a version tag like `v1.2.3`
-5. let GitHub create the release from the tag with generated notes
-6. patch follow-up docs only if the release changed visible behavior or support policy
+2. confirm the Windows build is signed
+3. run `bash scripts/release-verify.sh`
+4. create and push a version tag like `v0.1.0`
+5. let the GitHub release workflow publish signed artifacts once release automation is ready
+6. submit or update the winget manifest for the release version
+7. patch follow-up docs only if the release changed visible behavior or support policy
 
-Do not cut releases from a dirty branch or from unverified commits.
+Do not cut public releases from unsigned builds, from a dirty branch, or from
+unverified commits.
 
 ## Documentation ownership
 

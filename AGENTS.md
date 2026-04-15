@@ -77,9 +77,19 @@ If the work changes externally observable behavior and no relevant spec exists, 
 
 ## Verification expectations
 
-Replace this section with the real commands for your repository.
+Current repository verification commands from the repo root:
 
-Until this file is customized, inspect the existing task runner, package manager, Makefile, and `.github/workflows` files to find the real commands. Do not report success without naming the commands actually run.
+- `npm install`
+- `npm run lint`
+- `npm run test`
+- `npm run build`
+- `cargo check --manifest-path src-tauri/Cargo.toml`
+- `npm run tauri dev`
+- `bash scripts/ci.sh`
+- `bash scripts/release-verify.sh`
+
+If Rust or other Tauri prerequisites are missing on the local machine, state
+that explicitly instead of claiming the desktop validation passed.
 
 ## Change management
 
