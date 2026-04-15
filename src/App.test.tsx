@@ -1,7 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import App from "./App";
-import type { SpaceSiftClient } from "./lib/spaceSiftClient";
+import {
+  idleDuplicateStatus,
+  type SpaceSiftClient,
+} from "./lib/spaceSiftClient";
 
 function createIdleClient(): SpaceSiftClient {
   return {
@@ -27,8 +30,36 @@ function createIdleClient(): SpaceSiftClient {
     async openScanHistory() {
       throw new Error("no saved scans");
     },
+    async startDuplicateAnalysis() {
+      throw new Error("no duplicate analysis");
+    },
+    async getDuplicateAnalysisStatus() {
+      return idleDuplicateStatus;
+    },
+    async openDuplicateAnalysis() {
+      throw new Error("no duplicate analysis");
+    },
+    async listCleanupRules() {
+      return [];
+    },
+    async previewCleanup() {
+      throw new Error("no cleanup preview");
+    },
+    async executeCleanup() {
+      throw new Error("no cleanup execution");
+    },
+    async getPrivilegedCleanupCapability() {
+      return {
+        available: false,
+        message:
+          "Protected-path cleanup stays outside the unprivileged desktop flow in this milestone.",
+      };
+    },
     async openPathInExplorer() {},
     async subscribeToScanProgress() {
+      return () => {};
+    },
+    async subscribeToDuplicateProgress() {
       return () => {};
     },
   };

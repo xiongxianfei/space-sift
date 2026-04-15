@@ -1,0 +1,5 @@
+id = "temp-folder-files"
+label = "Files in Temp folders"
+description = "Files under directories named Temp or TMP within the current scan root."
+matcher = "path_segment"
+values = ["temp", "tmp"]

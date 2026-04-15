@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+cleanup-core = { path = "../cleanup-core" }
+duplicates-core = { path = "../duplicates-core" }
 rusqlite = { workspace = true }
 scan-core = { path = "../scan-core" }
 serde_json = { workspace = true }

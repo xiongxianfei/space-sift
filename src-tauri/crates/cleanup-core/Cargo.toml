@@ -1,0 +1,16 @@
+[package]
+name = "cleanup-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = { workspace = true }
+elevation-helper = { path = "../elevation-helper" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+trash = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

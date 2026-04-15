@@ -21,8 +21,15 @@ pub fn run() {
             commands::scan::start_scan,
             commands::scan::cancel_active_scan,
             commands::scan::get_scan_status,
+            commands::duplicates::start_duplicate_analysis,
+            commands::duplicates::get_duplicate_analysis_status,
+            commands::duplicates::open_duplicate_analysis,
+            commands::cleanup::list_cleanup_rules,
+            commands::cleanup::preview_cleanup,
+            commands::cleanup::execute_cleanup,
             commands::history::list_scan_history,
             commands::history::open_scan_history,
+            commands::privileged::get_privileged_cleanup_capability,
             commands::shell::open_path_in_explorer
         ])
         .run(tauri::generate_context!())

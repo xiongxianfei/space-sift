@@ -4,10 +4,12 @@
 duplicate-file cleanup candidates, and reclaiming disk space without blind
 deletion.
 
-The repository is currently in Milestone 3. The checked-in app can start a
+The repository is currently in Milestone 5. The checked-in app can start a
 recursive scan, report progress, store completed results in local SQLite
-history, reopen prior scans from the UI, and browse stored results with
-breadcrumbs, sorting, and Explorer handoff.
+history, reopen prior scans from the UI, browse stored results with
+breadcrumbs, sorting, and Explorer handoff, run duplicate analysis with
+keep-selection helpers, and build or execute a safe cleanup preview with a
+Recycle-Bin-first default.
 
 ## Stack
 
@@ -22,7 +24,8 @@ breadcrumbs, sorting, and Explorer handoff.
 
 - The normal app UI stays unprivileged by default.
 - Recycle Bin first is the default delete strategy.
-- Permanent deletion is a later, higher-friction workflow.
+- Permanent deletion exists as a separate, higher-friction workflow.
+- Protected Windows paths stay outside the normal unprivileged cleanup path.
 
 ## Current status
 
@@ -31,16 +34,19 @@ Implemented in this repository today:
 - a recursive Rust scan engine with reparse-point avoidance and cancellation
 - SQLite-backed scan history with reopen support
 - additive per-entry scan results for browseable history reopen
-- Tauri commands for scan progress, cancellation, history loading, and Explorer handoff
+- SQLite-backed duplicate hash caching with metadata validation
+- SQLite-backed cleanup execution logging
+- Tauri commands for scan progress, cancellation, history loading, duplicate analysis, cleanup preview/execution, protected-path capability reporting, and Explorer handoff
 - a results explorer with folder drill-down, sortable current-folder tables, and a current-level space map
-- frontend tests for the scan, history, and results-explorer flows
+- a duplicate-analysis workflow that shows only fully verified groups, excluded-path issues, and keep/delete previews
+- a cleanup workflow that combines duplicate delete candidates with a small built-in TOML rule catalog, previews exact file actions, defaults to Recycle Bin execution, and gates permanent delete behind an explicit confirmation toggle
+- frontend tests for the scan, history, results-explorer, duplicate-analysis, and cleanup flows
 - maintainer scripts for lint, test, build, and release-readiness checks
-- an execution plan plus feature/test specs for the foundation, scan/history, and results-explorer milestones
+- an execution plan plus feature/test specs for the foundation, scan/history, results-explorer, duplicate-analysis, and cleanup milestones
 
 Not implemented yet:
-- duplicate detection
-- cleanup execution
 - NTFS fast-path scanning
+- signed release automation and winget publication
 
 ## Quick start
 
@@ -76,3 +82,7 @@ The current feature contract is:
 - `specs/space-sift-scan-history.test.md`
 - `specs/space-sift-results-explorer.md`
 - `specs/space-sift-results-explorer.test.md`
+- `specs/space-sift-duplicates.md`
+- `specs/space-sift-duplicates.test.md`
+- `specs/space-sift-cleanup.md`
+- `specs/space-sift-cleanup.test.md`

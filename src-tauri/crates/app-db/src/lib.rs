@@ -1,3 +1,5 @@
+use cleanup_core::CleanupExecutionResult;
+use duplicates_core::{CachedHashes, DuplicateAnalysisFailure, HashCache, HashCacheKey};
 use scan_core::{CompletedScan, ScanHistoryEntry};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -32,6 +34,25 @@ impl HistoryStore {
                     completed_at TEXT NOT NULL,
                     total_bytes INTEGER NOT NULL,
                     scan_json TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS duplicate_hash_cache (
+                    path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    modified_at_millis INTEGER NOT NULL,
+                    partial_hash TEXT,
+                    full_hash TEXT,
+                    PRIMARY KEY (path, size_bytes, modified_at_millis)
+                );
+
+                CREATE TABLE IF NOT EXISTS cleanup_execution_history (
+                    execution_id TEXT PRIMARY KEY,
+                    preview_id TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    completed_at TEXT NOT NULL,
+                    completed_count INTEGER NOT NULL,
+                    failed_count INTEGER NOT NULL,
+                    execution_json TEXT NOT NULL
                 );
                 "#,
             )
@@ -122,6 +143,156 @@ impl HistoryStore {
         rusqlite::Connection::open(&self.db_path)
             .map_err(|error| HistoryStoreError::Persistence(error.to_string()))
     }
+
+    fn load_hash_cache_entry(&self, key: &HashCacheKey) -> Result<Option<CachedHashes>, HistoryStoreError> {
+        self.initialize()?;
+        let connection = self.open_connection()?;
+        let row = connection.query_row(
+            r#"
+            SELECT partial_hash, full_hash
+            FROM duplicate_hash_cache
+            WHERE path = ?1 AND size_bytes = ?2 AND modified_at_millis = ?3;
+            "#,
+            rusqlite::params![
+                key.path,
+                i64::try_from(key.size_bytes)
+                    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                key.modified_at_millis
+            ],
+            |row| {
+                Ok(CachedHashes {
+                    partial_hash: row.get(0)?,
+                    full_hash: row.get(1)?,
+                })
+            },
+        );
+
+        match row {
+            Ok(entry) => Ok(Some(entry)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(HistoryStoreError::Persistence(error.to_string())),
+        }
+    }
+
+    pub fn save_cleanup_execution(
+        &self,
+        result: &CleanupExecutionResult,
+    ) -> Result<(), HistoryStoreError> {
+        self.initialize()?;
+
+        let payload = serde_json::to_string(result)
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        let completed_count = i64::try_from(result.completed_count)
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        let failed_count = i64::try_from(result.failed_count)
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        let connection = self.open_connection()?;
+        connection
+            .execute(
+                r#"
+                INSERT OR REPLACE INTO cleanup_execution_history (
+                    execution_id,
+                    preview_id,
+                    mode,
+                    completed_at,
+                    completed_count,
+                    failed_count,
+                    execution_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);
+                "#,
+                rusqlite::params![
+                    result.execution_id,
+                    result.preview_id,
+                    serde_json::to_string(&result.mode)
+                        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                    result.completed_at,
+                    completed_count,
+                    failed_count,
+                    payload
+                ],
+            )
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+        Ok(())
+    }
+
+    pub fn open_cleanup_execution(
+        &self,
+        execution_id: &str,
+    ) -> Result<CleanupExecutionResult, HistoryStoreError> {
+        self.initialize()?;
+        let connection = self.open_connection()?;
+        let payload = connection.query_row(
+            "SELECT execution_json FROM cleanup_execution_history WHERE execution_id = ?1;",
+            rusqlite::params![execution_id],
+            |row| row.get::<_, String>(0),
+        );
+
+        match payload {
+            Ok(payload) => serde_json::from_str(&payload)
+                .map_err(|error| HistoryStoreError::Persistence(error.to_string())),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Err(HistoryStoreError::NotFound {
+                scan_id: execution_id.to_string(),
+            }),
+            Err(error) => Err(HistoryStoreError::Persistence(error.to_string())),
+        }
+    }
+
+    fn save_hash_cache_entry(
+        &self,
+        key: &HashCacheKey,
+        partial_hash: Option<&str>,
+        full_hash: Option<&str>,
+    ) -> Result<(), HistoryStoreError> {
+        self.initialize()?;
+        let existing = self.load_hash_cache_entry(key)?;
+        let connection = self.open_connection()?;
+        connection
+            .execute(
+                r#"
+                INSERT OR REPLACE INTO duplicate_hash_cache (
+                    path,
+                    size_bytes,
+                    modified_at_millis,
+                    partial_hash,
+                    full_hash
+                ) VALUES (?1, ?2, ?3, ?4, ?5);
+                "#,
+                rusqlite::params![
+                    key.path,
+                    i64::try_from(key.size_bytes)
+                        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                    key.modified_at_millis,
+                    partial_hash.or(existing.as_ref().and_then(|entry| entry.partial_hash.as_deref())),
+                    full_hash.or(existing.as_ref().and_then(|entry| entry.full_hash.as_deref()))
+                ],
+            )
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+        Ok(())
+    }
+}
+
+impl HashCache for HistoryStore {
+    fn get_cached_hashes(&self, key: &HashCacheKey) -> Result<Option<CachedHashes>, DuplicateAnalysisFailure> {
+        self.load_hash_cache_entry(key).map_err(|error| DuplicateAnalysisFailure::Internal {
+            message: error.to_string(),
+        })
+    }
+
+    fn save_partial_hash(&self, key: &HashCacheKey, partial_hash: &str) -> Result<(), DuplicateAnalysisFailure> {
+        self.save_hash_cache_entry(key, Some(partial_hash), None)
+            .map_err(|error| DuplicateAnalysisFailure::Internal {
+                message: error.to_string(),
+            })
+    }
+
+    fn save_full_hash(&self, key: &HashCacheKey, full_hash: &str) -> Result<(), DuplicateAnalysisFailure> {
+        self.save_hash_cache_entry(key, None, Some(full_hash))
+            .map_err(|error| DuplicateAnalysisFailure::Internal {
+                message: error.to_string(),
+            })
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -135,7 +306,8 @@ pub enum HistoryStoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scan_core::{ScanEntry, ScanEntryKind, SizedPath, SkippedPath, SkipReasonCode};
+    use cleanup_core::{CleanupExecutionEntry, CleanupExecutionItemStatus, CleanupExecutionMode};
+    use scan_core::{ScanEntry, ScanEntryKind, SizedPath, SkipReasonCode, SkippedPath};
     use tempfile::tempdir;
 
     fn sample_completed_scan() -> CompletedScan {
@@ -262,5 +434,94 @@ mod tests {
             .expect("legacy payload should reopen");
 
         assert!(reopened.entries.is_empty());
+    }
+
+    #[test]
+    fn stores_and_reuses_duplicate_hash_cache_entries() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::new(fixture.path().join("history.db"));
+        let key = HashCacheKey {
+            path: "C:\\scan-root\\dup.bin".to_string(),
+            size_bytes: 42,
+            modified_at_millis: 1234,
+        };
+
+        store
+            .save_partial_hash(&key, "partial-1")
+            .expect("partial hash should persist");
+        store
+            .save_full_hash(&key, "full-1")
+            .expect("full hash should persist");
+
+        let cached = store
+            .get_cached_hashes(&key)
+            .expect("cache lookup should succeed")
+            .expect("cache entry should exist");
+
+        assert_eq!(cached.partial_hash.as_deref(), Some("partial-1"));
+        assert_eq!(cached.full_hash.as_deref(), Some("full-1"));
+    }
+
+    #[test]
+    fn duplicate_hash_cache_key_changes_invalidate_lookup() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::new(fixture.path().join("history.db"));
+        let key = HashCacheKey {
+            path: "C:\\scan-root\\dup.bin".to_string(),
+            size_bytes: 42,
+            modified_at_millis: 1234,
+        };
+        let changed_key = HashCacheKey {
+            modified_at_millis: 5678,
+            ..key.clone()
+        };
+
+        store
+            .save_full_hash(&key, "full-1")
+            .expect("full hash should persist");
+
+        assert!(store
+            .get_cached_hashes(&changed_key)
+            .expect("changed lookup should succeed")
+            .is_none());
+    }
+
+    #[test]
+    fn persists_cleanup_execution_logs() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::new(fixture.path().join("history.db"));
+        let expected = CleanupExecutionResult {
+            execution_id: "execution-1".to_string(),
+            preview_id: "preview-1".to_string(),
+            mode: CleanupExecutionMode::Recycle,
+            completed_at: "2026-04-15T11:03:00Z".to_string(),
+            completed_count: 1,
+            failed_count: 1,
+            entries: vec![
+                CleanupExecutionEntry {
+                    action_id: "action-1".to_string(),
+                    path: "C:\\scan-root\\left.bin".to_string(),
+                    status: CleanupExecutionItemStatus::Completed,
+                    summary: "Moved to the Recycle Bin.".to_string(),
+                },
+                CleanupExecutionEntry {
+                    action_id: "action-2".to_string(),
+                    path: "C:\\scan-root\\right.bin".to_string(),
+                    status: CleanupExecutionItemStatus::Failed,
+                    summary: "File metadata changed after cleanup preview was generated."
+                        .to_string(),
+                },
+            ],
+        };
+
+        store
+            .save_cleanup_execution(&expected)
+            .expect("cleanup execution should persist");
+
+        let reopened = store
+            .open_cleanup_execution(&expected.execution_id)
+            .expect("cleanup execution should reopen");
+
+        assert_eq!(reopened, expected);
     }
 }
