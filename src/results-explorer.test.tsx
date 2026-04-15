@@ -11,6 +11,8 @@ import type {
   ScanStatusSnapshot,
 } from "./lib/spaceSiftTypes";
 
+const uiReadyTimeout = 5000;
+
 type ScanEntryFixture = {
   path: string;
   parentPath: string | null;
@@ -197,9 +199,13 @@ describe("Space Sift results explorer", () => {
   it("renders the root explorer, drills into directories, and navigates by breadcrumb", async () => {
     render(<App client={createExplorerClient(makeBrowseableScan("scan-explorer"))} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /browse games/i })).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /browse games/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: /downloads/i })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: /current folder contents/i })).toBeInTheDocument();
@@ -244,9 +250,13 @@ describe("Space Sift results explorer", () => {
     const client = createExplorerClient(makeBrowseableScan("scan-shell"));
     render(<App client={client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /open current path in explorer/i })).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /open current path in explorer/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /open current path in explorer/i }));
     expect(client.openPathInExplorer).toHaveBeenCalledWith(
@@ -271,9 +281,9 @@ describe("Space Sift results explorer", () => {
   it("keeps older summary-only scans readable and asks for a rescan to browse", async () => {
     render(<App client={createExplorerClient(makeSummaryOnlyScan("scan-legacy"))} />);
 
-    await waitFor(() => {
-      expect(screen.getByText(/legacy\.iso/i)).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByText(/legacy\.iso/i, undefined, { timeout: uiReadyTimeout }),
+    ).toBeInTheDocument();
 
     expect(
       screen.getByText(/saved before folder browsing support/i),

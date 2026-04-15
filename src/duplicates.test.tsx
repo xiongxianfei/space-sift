@@ -10,6 +10,8 @@ import type {
   ScanStatusSnapshot,
 } from "./lib/spaceSiftTypes";
 
+const uiReadyTimeout = 5000;
+
 function makeCompletedScanStatus(scanId: string): ScanStatusSnapshot {
   return {
     scanId,
@@ -196,9 +198,13 @@ describe("Space Sift duplicate workflow", () => {
     const mock = createDuplicateClient();
     render(<App client={mock.client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /analyze duplicates/i })).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /analyze duplicates/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /analyze duplicates/i }));
 
@@ -247,9 +253,13 @@ describe("Space Sift duplicate workflow", () => {
     const mock = createDuplicateClient();
     render(<App client={mock.client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /analyze duplicates/i })).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /analyze duplicates/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /analyze duplicates/i }));
 

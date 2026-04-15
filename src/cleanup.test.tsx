@@ -14,6 +14,8 @@ import type {
   ScanStatusSnapshot,
 } from "./lib/spaceSiftTypes";
 
+const uiReadyTimeout = 5000;
+
 function makeCompletedScanStatus(scanId: string): ScanStatusSnapshot {
   return {
     scanId,
@@ -245,9 +247,13 @@ describe("Space Sift cleanup workflow", () => {
     const client = createCleanupClient();
     render(<App client={client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /refresh cleanup preview/i })).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /refresh cleanup preview/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText(/files in temp folders/i));
     fireEvent.click(screen.getByRole("button", { name: /refresh cleanup preview/i }));
@@ -272,9 +278,13 @@ describe("Space Sift cleanup workflow", () => {
     const client = createCleanupClient();
     render(<App client={client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /refresh cleanup preview/i })).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /refresh cleanup preview/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /refresh cleanup preview/i }));
 
@@ -299,9 +309,13 @@ describe("Space Sift cleanup workflow", () => {
     const client = createCleanupClient();
     render(<App client={client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /refresh cleanup preview/i })).toBeInTheDocument();
-    });
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /refresh cleanup preview/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /refresh cleanup preview/i }));
 
