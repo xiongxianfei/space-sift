@@ -260,10 +260,12 @@ describe("Space Sift cleanup workflow", () => {
       });
     });
 
-    expect(screen.getByText(/2 cleanup candidates/i)).toBeInTheDocument();
-    expect(screen.getByText(/80 bytes/i)).toBeInTheDocument();
-    expect(screen.getByText(/duplicate selection/i)).toBeInTheDocument();
-    expect(screen.getByText(/files in temp folders/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/2 cleanup candidates/i)).toBeInTheDocument();
+      expect(screen.getByText(/80 bytes/i)).toBeInTheDocument();
+      expect(screen.getByText(/duplicate selection/i)).toBeInTheDocument();
+      expect(screen.getByText(/files in temp folders/i)).toBeInTheDocument();
+    });
   });
 
   it("executes recycle-bin-first cleanup by default and recommends a fresh scan", async () => {
