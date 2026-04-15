@@ -3,13 +3,15 @@
 Put future ideas, possible initiatives, and unapproved work here.
 
 ## Now
-- nothing committed yet
+- no unapproved immediate work outside the active MVP plan
 
 ## Next
-- example initiative
+- installer and signing hardening after the MVP core flows exist
+- winget automation polish after the first manual submission path is proven
 
 ## Later
-- example idea
+- NTFS metadata fast-path exploration
+- richer cleanup-rule catalogs after the initial safety model is proven
 
 ## Parking lot
-- ideas that are not approved but should not be forgotten
+- file visualization variants beyond the initial results experience
