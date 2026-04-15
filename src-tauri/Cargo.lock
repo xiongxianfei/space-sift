@@ -3293,6 +3293,7 @@ dependencies = [
  "elevation-helper",
  "scan-core",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]

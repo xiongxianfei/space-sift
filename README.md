@@ -4,7 +4,7 @@
 duplicate-file cleanup candidates, and reclaiming disk space without blind
 deletion.
 
-The repository is currently in Milestone 5. The checked-in app can start a
+The repository is currently in Milestone 6 release hardening. The checked-in app can start a
 recursive scan, report progress, store completed results in local SQLite
 history, reopen prior scans from the UI, browse stored results with
 breadcrumbs, sorting, and Explorer handoff, run duplicate analysis with
@@ -42,11 +42,13 @@ Implemented in this repository today:
 - a cleanup workflow that combines duplicate delete candidates with a small built-in TOML rule catalog, previews exact file actions, defaults to Recycle Bin execution, and gates permanent delete behind an explicit confirmation toggle
 - frontend tests for the scan, history, results-explorer, duplicate-analysis, and cleanup flows
 - maintainer scripts for lint, test, build, and release-readiness checks
+- a generated release-only Tauri config path so normal local builds do not require updater keys
 - an execution plan plus feature/test specs for the foundation, scan/history, results-explorer, duplicate-analysis, and cleanup milestones
+- a tag-driven GitHub release workflow with signing gates, updater artifacts, and versioned winget manifests for the current app version
 
 Not implemented yet:
 - NTFS fast-path scanning
-- signed release automation and winget publication
+- a live signed public release and published winget hashes for a real tag
 
 ## Quick start
 
@@ -86,3 +88,8 @@ The current feature contract is:
 - `specs/space-sift-duplicates.test.md`
 - `specs/space-sift-cleanup.md`
 - `specs/space-sift-cleanup.test.md`
+- `specs/space-sift-release.md`
+- `specs/space-sift-release.test.md`
+
+Release docs:
+- `docs/release.md`

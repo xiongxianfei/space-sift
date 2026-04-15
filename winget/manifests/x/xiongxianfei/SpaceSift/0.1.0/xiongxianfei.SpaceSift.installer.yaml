@@ -1,0 +1,15 @@
+PackageIdentifier: xiongxianfei.SpaceSift
+PackageVersion: 0.1.0
+InstallerType: nullsoft
+Scope: user
+UpgradeBehavior: install
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/xiongxianfei/space-sift/releases/download/v0.1.0/Space%20Sift_0.1.0_x64-setup.exe
+    InstallerSha256: REPLACE_WITH_RELEASE_SHA256
+ManifestType: installer
+ManifestVersion: 1.9.0

@@ -25,13 +25,37 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": "nsis",
+    "publisher": "xiongxianfei",
+    "homepage": "https://github.com/xiongxianfei/space-sift",
+    "license": "MIT",
+    "category": "Utility",
+    "shortDescription": "Windows 11 storage analysis and safe cleanup desktop app.",
+    "copyright": "Copyright (c) xiongxianfei",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "signCommand": {
+        "cmd": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "../scripts/sign-windows.ps1",
+          "%1"
+        ]
+      }
+    }
   }
 }
