@@ -1,0 +1,5 @@
+id = "download-partials"
+label = "Partial downloads"
+description = "Incomplete download files such as .crdownload and .part inside the current scan root."
+matcher = "extension"
+values = ["crdownload", "part", "partial"]

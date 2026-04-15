@@ -13,15 +13,18 @@
   - `specs/space-sift-scan-history.test.md`
   - `specs/space-sift-results-explorer.md`
   - `specs/space-sift-results-explorer.test.md`
+  - `specs/space-sift-duplicates.md`
+  - `specs/space-sift-duplicates.test.md`
+  - `specs/space-sift-cleanup.md`
+  - `specs/space-sift-cleanup.test.md`
 - Supersedes / Superseded by: none
-- Branch / PR: not started
+- Branch / PR: `feat/milestone-4-duplicates` / not opened yet
 - Last verified commands:
   - `npm run lint`
   - `npm run test`
-  - `npm run test -- history`
-  - `npm run test -- results`
+  - `npm run test -- cleanup`
   - `npm run build`
-  - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo test -p scan-core -p app-db`
+  - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo test -p cleanup-core -p elevation-helper -p app-db`
   - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo check --manifest-path Cargo.toml`
   - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri dev`
 
@@ -446,7 +449,34 @@ Expected observable result:
   results explorer with breadcrumbs, sortable current-folder contents, a
   current-level space map, and a summary-only fallback for older saved scans.
 - [x] Milestone 3 completed.
-- [ ] Milestones 4 through 6 not started.
+- [x] 2026-04-15: wrote the Milestone 4 duplicate-detection spec and test spec
+  before changing the backend crates, app state, or duplicate UI.
+- [x] 2026-04-15: added the `duplicates-core` crate with staged verification,
+  metadata validation, issue reporting, and SQLite-backed hash caching through
+  `app-db`.
+- [x] 2026-04-15: added Tauri duplicate-analysis commands and app state that
+  expose status, progress events, and reopenable completed duplicate results.
+- [x] 2026-04-15: implemented the React duplicate-analysis panel with progress,
+  fully verified groups, keep-newest/oldest helpers, manual keep selection,
+  issue reporting, and a read-only reclaimable-space preview.
+- [x] Milestone 4 completed.
+- [x] 2026-04-15: wrote the Milestone 5 cleanup spec and test spec before
+  changing the cleanup crates, Tauri commands, or React workflow.
+- [x] 2026-04-15: added the `cleanup-core` crate with repo-tracked TOML rule
+  loading, root-relative rule matching, preview generation, execution
+  revalidation, and a test-safe executor boundary.
+- [x] 2026-04-15: extended `app-db` with additive SQLite cleanup execution
+  logging and added the fail-closed `elevation-helper` crate for protected-path
+  capability reporting.
+- [x] 2026-04-15: added Tauri cleanup and privileged commands plus cleanup
+  runtime state so the frontend executes by preview ID rather than arbitrary
+  delete paths.
+- [x] 2026-04-15: implemented the React cleanup workflow with built-in rule
+  toggles, duplicate-derived delete candidates, preview refresh, Recycle
+  Bin-first execution, permanent-delete confirmation gating, and rescan
+  guidance after execution.
+- [x] Milestone 5 completed.
+- [ ] Milestone 6 not started.
 
 ## Surprises & Discoveries
 
@@ -478,6 +508,21 @@ Expected observable result:
 - This shell can run Rust and Tauri successfully once `%USERPROFILE%\.cargo\bin`
   is prefixed into `PATH`, but plain `npm run tauri dev` still fails here when
   that prefix is missing.
+- `duplicates-core` emits a terminal `completed` progress snapshot before the
+  Tauri layer has a chance to store the finished analysis result, so the
+  command layer has to suppress that final event until the result is reopenable
+  from app state.
+- The duplicate review flow was cleaner once the completed preview took visual
+  focus over the results explorer; leaving both views visible created repeated
+  filename text and made the keep/delete review harder to scan.
+- Cleanup rule matching had to evaluate paths relative to the active scan root,
+  not absolute filesystem paths; otherwise a rule like `temp-folder-files`
+  would incorrectly match every file scanned under the developer profile's own
+  `%TEMP%` directory.
+- The cleanup UI and the older explorer/duplicate tests were sensitive to
+  repeated visible filenames and status labels, so the rendered review surface
+  needed to avoid duplicate text while still keeping the important controls and
+  affordances accessible.
 
 ## Decision Log
 
@@ -558,6 +603,32 @@ Expected observable result:
   browseable tree data is missing.
   Rationale: this preserves reopen reliability and gives the user a clear
   rescan path instead of breaking history or inventing partial navigation.
+  Date/Author: 2026-04-15 / Codex
+
+- Decision: keep Milestone 4 duplicate analysis strictly preview-only and
+  read-only in both the Tauri command layer and the React UI.
+  Rationale: duplicate verification needs trust first; deletion and Recycle Bin
+  execution belong in the later cleanup milestone with clearer confirmation and
+  logging guarantees.
+  Date/Author: 2026-04-15 / Codex
+
+- Decision: suppress the terminal duplicate `completed` event until the Tauri
+  layer has stored the finished analysis result in app state.
+  Rationale: the frontend opens completed analyses by ID as soon as it sees the
+  terminal event, so emitting that event before the result is reopenable would
+  create a false failure race.
+  Date/Author: 2026-04-15 / Codex
+
+- Decision: evaluate built-in cleanup rules relative to the loaded scan root
+  rather than against absolute filesystem paths.
+  Rationale: cleanup rules should describe what to remove inside the reviewed
+  scan, not accidentally match unrelated parent path segments such as the
+  developer profile's own `%TEMP%` folder.
+  Date/Author: 2026-04-15 / Codex
+
+- Decision: keep cleanup execution scoped to backend-stored preview IDs.
+  Rationale: the frontend should only select from a reviewed candidate set; it
+  must not be able to submit arbitrary file paths to the execution command.
   Date/Author: 2026-04-15 / Codex
 
 ## Validation and Acceptance
@@ -662,6 +733,35 @@ Acceptance evidence for the shipped MVP:
   `cargo` was not on `PATH`, but `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri dev`
   stayed running until the command timeout, which is consistent with a healthy
   dev server.
+- 2026-04-15: `cargo test -p duplicates-core` and `cargo test -p app-db`
+  passed after the staged duplicate verifier, hash-cache table, and legacy
+  history compatibility path were implemented.
+- 2026-04-15: `npm run test -- duplicates` failed first against the Milestone 3
+  shell, confirming the new duplicate-analysis UI tests were exercising missing
+  behavior around progress, keep-selection helpers, and the summary-only
+  rescan fallback.
+- 2026-04-15: after the Milestone 4 implementation landed, `npm run lint`,
+  `npm run test`, and `npm run build` all passed from the repo root.
+- 2026-04-15: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo check --manifest-path Cargo.toml`
+  passed for the full Tauri workspace after wiring duplicate commands and app
+  state.
+- 2026-04-15: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri dev`
+  stayed running until the command timeout after the Milestone 4 changes,
+  which is consistent with the dev server remaining healthy in this shell.
+- 2026-04-15: `npm run test -- cleanup` failed first against the Milestone 4
+  shell, confirming the new cleanup UI tests were exercising missing preview,
+  execution, and rescan-required behavior.
+- 2026-04-15: after the Milestone 5 implementation landed, `npm run lint`,
+  `npm run test`, and `npm run build` all passed from the repo root.
+- 2026-04-15: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo test -p cleanup-core -p elevation-helper -p app-db`
+  passed after the cleanup preview/execution crates, SQLite logging, and
+  protected-path capability boundary were wired together.
+- 2026-04-15: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo check --manifest-path Cargo.toml`
+  passed for the full Tauri workspace after wiring the cleanup and privileged
+  commands plus the new shared cleanup types.
+- 2026-04-15: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri dev`
+  stayed running until the command timeout after the Milestone 5 changes,
+  which is consistent with the dev server remaining healthy in this shell.
 
 ## Idempotence and Recovery
 
@@ -686,17 +786,20 @@ Acceptance evidence for the shipped MVP:
 
 ## Outcomes & Retrospective
 
-Milestone 3 results-explorer code now exists. The repo has a recursive Rust
-scan engine, SQLite-backed result persistence, additive browseable scan-tree
-payloads, a Windows Explorer handoff command, and a React shell that can start
-scans, report progress, cancel work, reopen saved history, browse the stored
-tree from the root with breadcrumbs and sort controls, and degrade older saved
-scans to a readable summary-only mode.
+Milestone 5 cleanup code now exists. The repo has a recursive Rust scan engine,
+SQLite-backed result persistence, additive browseable scan-tree payloads, a
+Windows Explorer handoff command, a staged duplicate-verification crate with
+hash caching, a cleanup-core crate with repo-tracked TOML rules and
+Recycle-Bin-first execution, additive SQLite cleanup execution logging, a
+fail-closed protected-path capability boundary, and a React shell that can
+start scans, report progress, cancel work, reopen saved history, browse the
+stored tree from the root with breadcrumbs and sort controls, review duplicate
+groups, build a cleanup preview from duplicate selections plus built-in rules,
+and execute either Recycle Bin or explicitly confirmed permanent cleanup.
 
 Immediate next step:
-- Start Milestone 4 by adding staged duplicate detection, grouping, and a
-  preview-first duplicate cleanup workflow on top of the existing scan/history
-  model and browseable results shell.
+- Start Milestone 6 by finishing signed release automation, packaging,
+  repository release docs, and the winget distribution path.
 
 Explicit non-goals for this MVP:
 - Registry cleaning

@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { SpaceSiftClient } from "./lib/spaceSiftClient";
+import {
+  idleDuplicateStatus,
+  type SpaceSiftClient,
+} from "./lib/spaceSiftClient";
 import type {
   CompletedScan,
   ScanHistoryEntry,
@@ -165,7 +168,25 @@ function createExplorerClient(scan: BrowseableScanFixture, scanId = scan.scanId)
     getScanStatus: vi.fn(async () => makeCompletedStatus(scanId)),
     listScanHistory: vi.fn(async () => [historyEntry]),
     openScanHistory: vi.fn(async () => scan),
+    startDuplicateAnalysis: vi.fn(async () => ({ analysisId: "analysis-unused" })),
+    getDuplicateAnalysisStatus: vi.fn(async () => idleDuplicateStatus),
+    openDuplicateAnalysis: vi.fn(async () => {
+      throw new Error("no duplicate result");
+    }),
+    listCleanupRules: vi.fn(async () => []),
+    previewCleanup: vi.fn(async () => {
+      throw new Error("no cleanup preview");
+    }),
+    executeCleanup: vi.fn(async () => {
+      throw new Error("no cleanup execution");
+    }),
+    getPrivilegedCleanupCapability: vi.fn(async () => ({
+      available: false,
+      message:
+        "Protected-path cleanup stays outside the unprivileged desktop flow in this milestone.",
+    })),
     subscribeToScanProgress: vi.fn(async () => () => {}),
+    subscribeToDuplicateProgress: vi.fn(async () => () => {}),
     openPathInExplorer,
   };
 
