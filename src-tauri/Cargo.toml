@@ -25,6 +25,9 @@ name = "space-sift"
 version = "0.1.0"
 description = "Space Sift Windows 11 storage analysis shell"
 authors = ["xiongxianfei"]
+license = "MIT"
+homepage = "https://github.com/xiongxianfei/space-sift"
+repository = "https://github.com/xiongxianfei/space-sift"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -46,4 +49,5 @@ duplicates-core = { path = "crates/duplicates-core" }
 elevation-helper = { path = "crates/elevation-helper" }
 scan-core = { path = "crates/scan-core" }
 serde = { workspace = true }
+serde_json = { workspace = true }
 tauri = { version = "2", features = [] }

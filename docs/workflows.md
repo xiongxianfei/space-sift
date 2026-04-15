@@ -50,15 +50,18 @@ Current baseline CI checks for this repo:
 The intended public release path for `Space Sift` is:
 
 1. ensure `main` is green
-2. confirm the Windows build is signed
-3. run `bash scripts/release-verify.sh`
+2. run `bash scripts/release-verify.sh` from a clean working tree
+3. confirm the release secrets and variables documented in `docs/release.md` are configured
 4. create and push a version tag like `v0.1.0`
-5. let the GitHub release workflow publish signed artifacts once release automation is ready
-6. submit or update the winget manifest for the release version
-7. patch follow-up docs only if the release changed visible behavior or support policy
+5. let `.github/workflows/release.yml` generate the release-only Tauri config, then build the signed Windows installer and updater artifacts through `tauri-apps/tauri-action`
+6. update the checked-in `winget/manifests/` SHA256 and installer URL details for the shipped tag if needed
+7. submit or update the public Windows Package Manager manifest for that version
+8. patch follow-up docs only if the release changed visible behavior or support policy
 
 Do not cut public releases from unsigned builds, from a dirty branch, or from
 unverified commits.
+
+The repository runbook for these steps lives at `docs/release.md`.
 
 ## Documentation ownership
 

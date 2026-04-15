@@ -1,0 +1,20 @@
+PackageIdentifier: xiongxianfei.SpaceSift
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: xiongxianfei
+PublisherUrl: https://github.com/xiongxianfei
+PublisherSupportUrl: https://github.com/xiongxianfei/space-sift/issues
+PackageName: Space Sift
+PackageUrl: https://github.com/xiongxianfei/space-sift
+License: MIT
+LicenseUrl: https://github.com/xiongxianfei/space-sift/blob/main/LICENSE
+ShortDescription: Windows 11 desktop tool for large-file discovery and safe cleanup.
+Description: Space Sift scans folders, reopens stored scan history, reviews duplicate groups, and previews cleanup with a Recycle Bin first default.
+Moniker: spacesift
+Tags:
+  - disk
+  - cleanup
+  - storage
+  - duplicates
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

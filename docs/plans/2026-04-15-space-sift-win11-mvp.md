@@ -4,7 +4,7 @@
 
 - Status: active
 - Created: 2026-04-15
-- Updated: 2026-04-15
+- Updated: 2026-04-16
 - Owner: xiongxianfei / Codex
 - Related spec(s):
   - `specs/space-sift-mvp.md`
@@ -17,16 +17,19 @@
   - `specs/space-sift-duplicates.test.md`
   - `specs/space-sift-cleanup.md`
   - `specs/space-sift-cleanup.test.md`
+  - `specs/space-sift-release.md`
+  - `specs/space-sift-release.test.md`
 - Supersedes / Superseded by: none
-- Branch / PR: `feat/milestone-4-duplicates` / not opened yet
+- Branch / PR: `feat/release-hardening-winget` / not opened yet
 - Last verified commands:
+  - `npm run test -- release-config`
   - `npm run lint`
   - `npm run test`
-  - `npm run test -- cleanup`
   - `npm run build`
-  - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo test -p cleanup-core -p elevation-helper -p app-db`
-  - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo check --manifest-path Cargo.toml`
-  - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri dev`
+  - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo check --manifest-path src-tauri/Cargo.toml`
+  - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri build`
+  - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run release:config`
+  - `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri build -- --config src-tauri/tauri.release.conf.json`
 
 ## Purpose / Big picture
 
@@ -476,7 +479,20 @@ Expected observable result:
   Bin-first execution, permanent-delete confirmation gating, and rescan
   guidance after execution.
 - [x] Milestone 5 completed.
-- [ ] Milestone 6 not started.
+- [x] 2026-04-16: wrote the Milestone 6 release-hardening spec and test spec
+  before changing release automation, docs, or checked-in `winget` metadata.
+- [x] 2026-04-16: replaced the placeholder release workflow with a tag-driven
+  Windows packaging workflow that runs release-readiness checks first, validates
+  signing inputs, generates a release-only Tauri config from an injected
+  updater public key, and publishes through `tauri-apps/tauri-action`.
+- [x] 2026-04-16: added repo-side release docs, versioned `winget` manifests,
+  a Windows signing helper script, and repository-config tests that fail on
+  version drift, missing release docs, or missing signing gates.
+- [x] 2026-04-16: kept normal local `npm run tauri build` usable by moving
+  updater-artifact settings out of the checked-in base Tauri config and into a
+  generated release-only config.
+- [ ] Milestone 6 remains active until a real signed tag release is cut and the
+  public `winget` manifest for that version is submitted or accepted.
 
 ## Surprises & Discoveries
 
@@ -523,6 +539,21 @@ Expected observable result:
   repeated visible filenames and status labels, so the rendered review surface
   needed to avoid duplicate text while still keeping the important controls and
   affordances accessible.
+- `tauri::generate_context!()` required `serde_json` as a direct dependency of
+  the app crate during `tauri build`, even though earlier `cargo check`
+  coverage had not surfaced that gap.
+- The Tauri custom signing command runs from `src-tauri`, not the repository
+  root, so the signing script path had to be `../scripts/sign-windows.ps1`
+  rather than a root-relative `scripts/...` path.
+- The first release-hardening attempt made normal local `tauri build` depend on
+  updater key material because `createUpdaterArtifacts` and the updater plugin
+  config lived in the base `tauri.conf.json`.
+- Generating a release-only Tauri config from `TAURI_UPDATER_PUBLIC_KEY` keeps
+  local maintainer builds simple while still letting the release workflow embed
+  the real updater public key for shipped artifacts.
+- On this Windows machine, `bash.exe` on `PATH` resolves to the WSL shim rather
+  than Git Bash, so the release-verification smoke test had to use
+  `D:\Software\Git\bin\bash.exe` explicitly.
 
 ## Decision Log
 
@@ -630,6 +661,21 @@ Expected observable result:
   Rationale: the frontend should only select from a reviewed candidate set; it
   must not be able to submit arbitrary file paths to the execution command.
   Date/Author: 2026-04-15 / Codex
+
+- Decision: generate updater-artifact settings in a release-only Tauri config
+  instead of checking the updater public key placeholder into the base app
+  config.
+  Rationale: maintainers should be able to run ordinary local `tauri build`
+  without release key material, while real release artifacts still need the
+  actual updater public key embedded at packaging time.
+  Date/Author: 2026-04-16 / Codex
+
+- Decision: use `powershell.exe` and a repo-relative `../scripts` path for the
+  Tauri custom Windows signing hook.
+  Rationale: the bundler executes the hook from `src-tauri`, and relying on
+  `pwsh` or the wrong relative path broke local packaging before the signing
+  script could even decide to skip unsigned builds.
+  Date/Author: 2026-04-16 / Codex
 
 ## Validation and Acceptance
 
@@ -762,6 +808,28 @@ Acceptance evidence for the shipped MVP:
 - 2026-04-15: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri dev`
   stayed running until the command timeout after the Milestone 5 changes,
   which is consistent with the dev server remaining healthy in this shell.
+- 2026-04-16: `npm run test -- release-config` failed first against the old
+  release placeholder workflow and missing release docs/`winget` files,
+  confirming the new repository-config tests were exercising real Milestone 6
+  behavior instead of passing vacuously.
+- 2026-04-16: after the release-hardening implementation landed, `npm run lint`,
+  `npm run test`, `npm run build`, and
+  `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; cargo check --manifest-path src-tauri/Cargo.toml`
+  all passed from the repo root.
+- 2026-04-16: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri build`
+  passed after moving updater-artifact settings into a generated release-only
+  config and fixing the Tauri signing hook to use `powershell.exe` plus the
+  correct script path.
+- 2026-04-16: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run release:config`
+  generated `src-tauri/tauri.release.conf.json` successfully when
+  `TAURI_UPDATER_PUBLIC_KEY` was set.
+- 2026-04-16: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri build -- --config src-tauri/tauri.release.conf.json`
+  passed with a temporary updater keypair, producing both the NSIS installer and
+  the `.sig` updater signature artifact.
+- 2026-04-16: `D:\Software\Git\bin\bash.exe scripts/release-verify.sh` passed
+  in a throwaway clone with this diff committed, confirming the documented
+  clean-tree release verification flow works even though the main working tree
+  is intentionally dirty during implementation.
 
 ## Idempotence and Recovery
 
@@ -786,20 +854,28 @@ Acceptance evidence for the shipped MVP:
 
 ## Outcomes & Retrospective
 
-Milestone 5 cleanup code now exists. The repo has a recursive Rust scan engine,
-SQLite-backed result persistence, additive browseable scan-tree payloads, a
-Windows Explorer handoff command, a staged duplicate-verification crate with
-hash caching, a cleanup-core crate with repo-tracked TOML rules and
-Recycle-Bin-first execution, additive SQLite cleanup execution logging, a
-fail-closed protected-path capability boundary, and a React shell that can
-start scans, report progress, cancel work, reopen saved history, browse the
-stored tree from the root with breadcrumbs and sort controls, review duplicate
-groups, build a cleanup preview from duplicate selections plus built-in rules,
-and execute either Recycle Bin or explicitly confirmed permanent cleanup.
+Milestone 5 cleanup code and the repo-side Milestone 6 release hardening now
+exist. The repo has a recursive Rust scan engine, SQLite-backed result
+persistence, additive browseable scan-tree payloads, a Windows Explorer handoff
+command, a staged duplicate-verification crate with hash caching, a
+cleanup-core crate with repo-tracked TOML rules and Recycle-Bin-first
+execution, additive SQLite cleanup execution logging, a fail-closed
+protected-path capability boundary, and a React shell that can start scans,
+report progress, cancel work, reopen saved history, browse the stored tree from
+the root with breadcrumbs and sort controls, review duplicate groups, build a
+cleanup preview from duplicate selections plus built-in rules, and execute
+either Recycle Bin or explicitly confirmed permanent cleanup.
+
+The release path now includes a real tag-driven GitHub Actions workflow,
+repository-config release tests, a `winget` manifest set for `0.1.0`, a custom
+Windows signing hook, a release runbook, and a generated release-only Tauri
+config path that lets local unsigned builds stay simple while real release
+packaging embeds the updater public key and emits updater signature artifacts.
 
 Immediate next step:
-- Start Milestone 6 by finishing signed release automation, packaging,
-  repository release docs, and the winget distribution path.
+- Provision the real signing certificate and updater key material, set the
+  `TAURI_UPDATER_PUBLIC_KEY` repository variable, cut a real signed tag release,
+  refresh the shipped `winget` SHA256, and submit the public manifest.
 
 Explicit non-goals for this MVP:
 - Registry cleaning
