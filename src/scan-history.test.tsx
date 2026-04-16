@@ -103,6 +103,68 @@ function makeSecondCompletedScan(): CompletedScan {
   };
 }
 
+function makeSeededHistoryReviewFixture() {
+  const history: ScanHistoryEntry[] = [];
+  const scansById: Record<string, CompletedScan> = {};
+  const rootOptions = [
+    "C:\\Users\\xiongxianfei\\Downloads\\Projects",
+    "C:\\Users\\xiongxianfei\\Videos\\Archive",
+    "D:\\Archive\\Backups",
+    "D:\\Projects\\Northwind",
+  ];
+
+  for (let index = 1; index <= 24; index += 1) {
+    const scanId = `scan-${String(index).padStart(2, "0")}`;
+    const rootBase = rootOptions[(index - 1) % rootOptions.length]!;
+    const rootPath = `${rootBase}\\Batch-${index}`;
+    const completedAt = new Date(Date.UTC(2026, 3, 15, 12, index, 0)).toISOString();
+    const totalBytes = 2048 + index * 256;
+
+    history.push(makeHistoryEntry(scanId, rootPath, totalBytes, completedAt));
+    scansById[scanId] = {
+      ...makeCompletedScan(),
+      scanId,
+      rootPath,
+      startedAt: new Date(Date.parse(completedAt) - 60_000).toISOString(),
+      completedAt,
+      totalBytes,
+      totalFiles: 1,
+      totalDirectories: 1,
+      largestFiles: [
+        {
+          path: `${rootPath}\\item-${index}.bin`,
+          sizeBytes: totalBytes - 256,
+        },
+      ],
+      largestDirectories: [
+        {
+          path: rootPath,
+          sizeBytes: totalBytes,
+        },
+      ],
+      entries: [
+        {
+          path: rootPath,
+          parentPath: null,
+          kind: "directory",
+          sizeBytes: totalBytes,
+        },
+        {
+          path: `${rootPath}\\item-${index}.bin`,
+          parentPath: rootPath,
+          kind: "file",
+          sizeBytes: totalBytes - 256,
+        },
+      ],
+    };
+  }
+
+  return {
+    history,
+    scansById,
+  };
+}
+
 function makeIdleSnapshot(): ScanStatusSnapshot {
   return {
     scanId: null,
@@ -413,6 +475,164 @@ describe("Space Sift scan and history flow", () => {
     });
   });
 
+  it("orders saved scans newest first, highlights the loaded result, and narrows the local history view", async () => {
+    const completedScans = {
+      "scan-1": makeCompletedScan(),
+      "scan-2": makeSecondCompletedScan(),
+      "scan-3": {
+        ...makeCompletedScan(),
+        scanId: "scan-3",
+        rootPath: "D:\\Archive\\Backups",
+        startedAt: "2026-04-14T21:58:00Z",
+        completedAt: "2026-04-14T22:00:00Z",
+        totalBytes: 2048,
+      },
+    };
+    const history = [
+      makeHistoryEntry("scan-1", "C:\\Users\\xiongxianfei\\Downloads", 4096, "2026-04-15T11:00:00Z"),
+      makeHistoryEntry("scan-3", "D:\\Archive\\Backups", 2048, "2026-04-14T22:00:00Z"),
+      makeHistoryEntry("scan-2", "C:\\Users\\xiongxianfei\\Videos", 8192, "2026-04-15T12:05:00Z"),
+    ];
+    const mock = createMockClient({
+      history,
+      scansById: completedScans,
+    });
+
+    render(<App client={mock.client} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /reopen scan scan-2/i })).toBeInTheDocument();
+    });
+
+    expect(
+      screen
+        .getAllByRole("button", { name: /reopen scan scan-/i })
+        .map((button) => button.textContent),
+    ).toEqual(["Reopen scan scan-2", "Reopen scan scan-1", "Reopen scan scan-3"]);
+
+    fireEvent.change(screen.getByLabelText(/filter by root path/i), {
+      target: { value: "videos" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /reopen scan scan-2/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /reopen scan scan-1/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /reopen scan scan-3/i })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /reopen scan scan-2/i }));
+
+    await waitFor(() => {
+      expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-2");
+      expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
+    });
+
+    const loadedEntry = screen
+      .getByRole("button", { name: /reopen scan scan-2/i })
+      .closest("li");
+    if (!loadedEntry) {
+      throw new Error("Expected loaded history entry.");
+    }
+
+    expect(within(loadedEntry).getByText(/loaded result/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/filter by root path/i), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByLabelText(/filter by scan id/i), {
+      target: { value: "scan-3" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /reopen scan scan-3/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /reopen scan scan-2/i })).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/filter by scan id/i), {
+      target: { value: "scan-9" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/no saved scans match the current filters/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /reopen scan scan-/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps a seeded large history review state readable and keyboard reachable", async () => {
+    const fixture = makeSeededHistoryReviewFixture();
+    const mock = createMockClient({
+      history: fixture.history,
+      scansById: fixture.scansById,
+    });
+
+    render(<App client={mock.client} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /reopen scan scan-24/i })).toBeInTheDocument();
+    });
+
+    expect(
+      screen
+        .getAllByRole("button", { name: /reopen scan scan-/i })
+        .slice(0, 4)
+        .map((button) => button.textContent),
+    ).toEqual([
+      "Reopen scan scan-24",
+      "Reopen scan scan-23",
+      "Reopen scan scan-22",
+      "Reopen scan scan-21",
+    ]);
+
+    const rootFilter = screen.getByLabelText(/filter by root path/i);
+    rootFilter.focus();
+    expect(rootFilter).toHaveFocus();
+
+    fireEvent.change(rootFilter, {
+      target: { value: "northwind" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /reopen scan scan-/i })).toHaveLength(6);
+      expect(screen.getByRole("button", { name: /reopen scan scan-24/i })).toBeInTheDocument();
+    });
+
+    const reopenButton = screen.getByRole("button", { name: /reopen scan scan-24/i });
+    reopenButton.focus();
+    expect(reopenButton).toHaveFocus();
+    fireEvent.click(reopenButton);
+
+    await waitFor(() => {
+      expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-24");
+      expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
+    });
+
+    const loadedEntry = screen
+      .getByRole("button", { name: /reopen scan scan-24/i })
+      .closest("li");
+    if (!loadedEntry) {
+      throw new Error("Expected loaded seeded history entry.");
+    }
+
+    expect(within(loadedEntry).getByText(/loaded result/i)).toBeInTheDocument();
+
+    fireEvent.change(rootFilter, {
+      target: { value: "" },
+    });
+
+    const scanIdFilter = screen.getByLabelText(/filter by scan id/i);
+    scanIdFilter.focus();
+    expect(scanIdFilter).toHaveFocus();
+    fireEvent.change(scanIdFilter, {
+      target: { value: "scan-05" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /reopen scan scan-05/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /reopen scan scan-24/i })).not.toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /reopen scan scan-/i })).toHaveLength(1);
+    });
+  });
+
   it("blocks a second scan request while one is already running", async () => {
     const mock = createMockClient();
     render(<App client={mock.client} />);
@@ -436,12 +656,15 @@ describe("Space Sift scan and history flow", () => {
           filesDiscovered: 3,
           directoriesDiscovered: 2,
           bytesProcessed: 3072,
+          updatedAt: "2026-04-15T10:59:08Z",
+          currentPath: "C:\\Users\\xiongxianfei\\Downloads\\nested",
         }),
       );
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /active scan/i })).toBeInTheDocument();
+      const activePanel = getActiveScanPanel();
+      expect(within(activePanel).getByText(/^running$/i)).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: /start scan/i }));

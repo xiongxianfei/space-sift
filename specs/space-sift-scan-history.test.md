@@ -17,9 +17,10 @@ the current scan, long-scan progress, and history contract.
 | T8 | R1, R2, R3, R4, R5, R6, R17, R19, E6, Edge 7, Edge 8, Edge 9, Edge 10 | component | Render the app with a previous completed result available, start a new scan, and simulate running progress | The UI enters dedicated active-scan mode immediately, shows root, running-state context, live counters, and heartbeat or path context, does not present the older result as the current result, blocks a second scan, and does not claim an exact percent complete |
 | T9 | R13, Invariants | component | Cancel an active scan from the UI | The UI shows cancelled state and the cancelled result does not appear in history |
 | T10 | R14, R15, R16 | component | Drive a scan from running to completed with a `completedScanId` and stored result | The UI leaves active-scan mode and loads the newly persisted completed result rather than stale placeholder content |
-| T11 | R20, O7, Edge 12 | rust unit or integration | Run an ordinary scan through an instrumented scan backend or fixture seam that can detect duplicate-style hashing or file-body reads | The scan completes without invoking duplicate hashing, file sampling, or full content reads |
-| T12 | R21, R22, R23, E7, Edge 11 | rust integration | Scan a fixture or injected path classified as a supported non-primary path and force the optimized backend to be unavailable | The scan uses the safe fallback path, preserves the normal result contract, and does not require elevation or content reads |
-| T13 | O6, acceptance criteria | manual smoke | Compare one large local fixed-volume scan with one available non-primary path class | The maintainer records that the local fixed-volume path is the primary optimization target and that the fallback path still honors the same read-only contract |
+| T11 | R15, R15a, R15b, R15c, R16, R19, E8, Edge 13, Edge 14, O4a | component | Load a seeded many-entry history list with a currently loaded result, narrow it by root path and scan ID, observe a no-match filter state, and reopen a matching scan | The history list defaults newest-first, visibly distinguishes the currently loaded result when it is still visible, narrows only by local metadata, shows an explicit no-match state when appropriate, and reopens a selected scan without rescanning |
+| T12 | R20, O7, Edge 12 | rust unit or integration | Run an ordinary scan through an instrumented scan backend or fixture seam that can detect duplicate-style hashing or file-body reads | The scan completes without invoking duplicate hashing, file sampling, or full content reads |
+| T13 | R21, R22, R23, E7, Edge 11 | rust integration | Scan a fixture or injected path classified as a supported non-primary path and force the optimized backend to be unavailable | The scan uses the safe fallback path, preserves the normal result contract, and does not require elevation or content reads |
+| T14 | O6, acceptance criteria | manual smoke | Compare one large local fixed-volume scan with one available non-primary path class | The maintainer records that the local fixed-volume path is the primary optimization target and that the fallback path still honors the same read-only contract |
 
 ## Coverage by requirement
 
@@ -35,33 +36,38 @@ the current scan, long-scan progress, and history contract.
 | R8 | T1 |
 | R9 | T1 |
 | R10 | T2 |
-| R11 | T2 |
+| R11 | T2, T3 |
 | R12 | T3 |
 | R13 | T5, T9 |
 | R14 | T6, T7, T10 |
-| R15 | T6, T10 |
-| R16 | T6, T10 |
+| R15 | T6, T10, T11 |
+| R15a | T11 |
+| R15b | T11 |
+| R15c | T11 |
+| R16 | T6, T10, T11 |
 | R17 | T8 |
 | R18 | T7 |
-| R19 | T8 |
-| R20 | T11 |
-| R21 | T12, T13 |
-| R22 | T12, T13 |
-| R23 | T12 |
+| R19 | T8, T11 |
+| R20 | T12 |
+| R21 | T13, T14 |
+| R22 | T13, T14 |
+| R23 | T13 |
 | E1 | T2 |
 | E2 | T3 |
 | E3 | T1 |
 | E4 | T7 |
 | E5 | T6 |
 | E6 | T8 |
-| E7 | T12 |
+| E7 | T13 |
+| E8 | T11 |
 | O1 | T1, T2, T3, T5 |
 | O2 | T4 |
 | O3 | T6, T7 |
-| O4 | T8, T9, T10 |
-| O5 | T1, T2, T3, T4, T5, T6, T7, T8, T9, T10 |
-| O6 | T13 |
-| O7 | T11 |
+| O4 | T8, T9, T10, T11 |
+| O4a | T11 |
+| O5 | T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11 |
+| O6 | T14 |
+| O7 | T12 |
 
 ## Fixtures and scenarios
 
@@ -77,13 +83,17 @@ the current scan, long-scan progress, and history contract.
   depending on real network infrastructure in every automated run.
 - Frontend tests may stub the Tauri invoke bridge and in-memory progress events
   instead of launching the desktop shell.
-- At least one component fixture should begin with a previously loaded
-  completed scan so the stale-result separation rules are exercised when a new
-  scan starts.
+- At least one component fixture should begin with a previously loaded completed
+  scan so the stale-result separation rules are exercised when a new scan
+  starts.
+- At least one history-focused component fixture should include many stored
+  history entries plus a currently loaded scan so newest-first ordering,
+  highlight behavior, root-path filtering, scan-ID filtering, and explicit
+  no-match handling can all be asserted from local data.
 
 ## What not to test
 
-- Duplicate analysis
+- Duplicate hashing or duplicate-group UI
 - Cleanup rule previews or deletion flows
 - Elevated helper behavior
 - Installer, signing, or winget distribution
@@ -92,13 +102,13 @@ the current scan, long-scan progress, and history contract.
 - The exact internal Windows enumeration API choice, because the spec only
   fixes the user-visible contract and safety boundaries
 
-## Notes
+## Gaps and follow-up
 
 - Real Windows permission-denied and reparse-point behavior may still need a
   manual smoke test in addition to unit coverage.
 - A manual Windows 11 smoke run on a genuinely large folder should confirm that
   the chosen progress cadence still feels alive outside synthetic fixtures.
 - If the repo does not yet expose a backend-selection seam, Milestone 2 or 3 of
-  the fast-safe scan plan should add one before T12 is implemented.
+  the fast-safe scan plan should add one before T13 is implemented.
 - Later milestones may extend the test plan with NTFS fast-path behavior only
   after that capability is explicitly added to the contract.
