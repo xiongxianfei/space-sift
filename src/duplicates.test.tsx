@@ -21,6 +21,9 @@ function makeCompletedScanStatus(scanId: string): ScanStatusSnapshot {
     filesDiscovered: 4,
     directoriesDiscovered: 2,
     bytesProcessed: 96,
+    startedAt: "2026-04-15T10:59:00Z",
+    updatedAt: "2026-04-15T11:00:00Z",
+    currentPath: "C:\\Users\\xiongxianfei\\Downloads",
     message: "Scan complete.",
     completedScanId: scanId,
   };

@@ -65,6 +65,35 @@ function formatTimestamp(value: string) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
+function formatElapsedWindow(startedAt: string | null, updatedAt: string | null) {
+  if (!startedAt) {
+    return null;
+  }
+
+  const started = new Date(startedAt).getTime();
+  const updated = updatedAt ? new Date(updatedAt).getTime() : started;
+  if (Number.isNaN(started) || Number.isNaN(updated)) {
+    return null;
+  }
+
+  const totalSeconds = Math.max(0, Math.floor((updated - started) / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s active`;
+  }
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return seconds === 0 ? `${minutes}m active` : `${minutes}m ${seconds}s active`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes === 0
+    ? `${hours}h active`
+    : `${hours}h ${remainingMinutes}m active`;
+}
+
 function describeError(error: unknown) {
   if (error instanceof Error) {
     return error.message;
@@ -524,14 +553,24 @@ function App({ client = unsupportedClient }: AppProps) {
 
     try {
       const started = await client.startScan(normalizedRoot);
+      const startedAt = new Date().toISOString();
       startTransition(() => {
-        setScanStatus({
-          ...idleScanStatus,
-          scanId: started.scanId,
-          rootPath: normalizedRoot,
-          state: "running",
+        setScanStatus((currentValue) => {
+          if (currentValue.scanId === started.scanId && currentValue.state !== "idle") {
+            return currentValue;
+          }
+
+          return {
+            ...idleScanStatus,
+            scanId: started.scanId,
+            rootPath: normalizedRoot,
+            state: "running",
+            startedAt,
+            updatedAt: startedAt,
+            currentPath: normalizedRoot,
+          };
         });
-        setNotice(`Scanning ${normalizedRoot}`);
+        setNotice((currentValue) => currentValue ?? `Scanning ${normalizedRoot}`);
       });
     } catch (error) {
       startTransition(() => {
@@ -761,6 +800,15 @@ function App({ client = unsupportedClient }: AppProps) {
   const duplicatePreview = duplicateAnalysis
     ? summarizeDuplicatePreview(duplicateAnalysis, duplicateKeepSelections)
     : { filesMarkedForDeletion: 0, reclaimableBytes: 0 };
+  const isScanRunning = scanStatus.state === "running";
+  const activeScanRoot =
+    (scanStatus.rootPath ?? rootPath.trim()) || "Waiting for scan root";
+  const activeScanPath = scanStatus.currentPath ?? scanStatus.rootPath;
+  const activeScanHeartbeat = scanStatus.updatedAt
+    ? formatTimestamp(scanStatus.updatedAt)
+    : "Waiting for the first live update.";
+  const activeScanStarted = scanStatus.startedAt ? formatTimestamp(scanStatus.startedAt) : null;
+  const activeScanElapsed = formatElapsedWindow(scanStatus.startedAt, scanStatus.updatedAt);
 
   return (
     <main className="shell">
@@ -880,7 +928,71 @@ function App({ client = unsupportedClient }: AppProps) {
         </div>
       </section>
 
-      {currentScan ? (
+      {isScanRunning ? (
+        <section className="panel active-scan-panel" aria-live="polite">
+          <div className="panel-header">
+            <h2>Active scan</h2>
+            <p>
+              Progress stays indeterminate while Space Sift discovers more files and
+              folders. Previous completed scans stay in Recent scans until this run
+              finishes.
+            </p>
+          </div>
+
+          <div className="active-scan-grid">
+            <article className="summary-card">
+              <span>Scan root</span>
+              <strong>{activeScanRoot}</strong>
+            </article>
+            <article className="summary-card">
+              <span>Current activity</span>
+              <strong>{activeScanPath ? getPathLabel(activeScanPath) : "Waiting for path context"}</strong>
+              <p className="current-path active-scan-path">
+                {activeScanPath ?? "The scanner has not emitted a narrower path yet."}
+              </p>
+            </article>
+            <article className="summary-card">
+              <span>Started</span>
+              <strong>{activeScanStarted ?? "Starting scan"}</strong>
+              <p className="active-scan-meta">
+                {activeScanElapsed ?? "Elapsed time will appear after progress updates."}
+              </p>
+            </article>
+            <article className="summary-card">
+              <span>Last update</span>
+              <strong>{activeScanHeartbeat}</strong>
+              <p className="active-scan-meta">Live progress is emitted at a bounded cadence.</p>
+            </article>
+          </div>
+
+          <div className="active-scan-toolbar">
+            <div className="result-summary">
+              <article className="summary-card">
+                <span>State</span>
+                <strong>{scanStatus.state}</strong>
+              </article>
+              <article className="summary-card">
+                <span>Files discovered</span>
+                <strong>{scanStatus.filesDiscovered}</strong>
+              </article>
+              <article className="summary-card">
+                <span>Directories discovered</span>
+                <strong>{scanStatus.directoriesDiscovered}</strong>
+              </article>
+              <article className="summary-card">
+                <span>Bytes processed</span>
+                <strong>{formatBytes(scanStatus.bytesProcessed)} processed</strong>
+              </article>
+            </div>
+
+            <div className="action-row">
+              <button type="button" className="secondary-button" onClick={handleCancelScan}>
+                Cancel scan
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : currentScan ? (
         <section className="panel">
           <div className="panel-header">
             <h2>Current result</h2>

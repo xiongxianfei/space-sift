@@ -289,6 +289,31 @@ select {
   gap: 16px;
 }
 
+.active-scan-panel,
+.active-scan-grid,
+.active-scan-toolbar {
+  display: grid;
+  gap: 16px;
+}
+
+.active-scan-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.active-scan-toolbar {
+  align-items: start;
+}
+
+.active-scan-toolbar .action-row {
+  justify-content: flex-end;
+}
+
+.active-scan-path,
+.active-scan-meta {
+  margin-top: 8px;
+  color: #c4cddd;
+}
+
 .explorer-grid {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -695,6 +720,7 @@ select {
 
   .explorer-header,
   .explorer-toolbar,
+  .active-scan-toolbar,
   .duplicate-toolbar,
   .duplicate-group-header,
   .duplicate-member {
