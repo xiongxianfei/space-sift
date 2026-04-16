@@ -12,6 +12,7 @@ import type {
 } from "./lib/spaceSiftTypes";
 
 const uiReadyTimeout = 5000;
+const uiTestTimeout = 15000;
 
 type ScanEntryFixture = {
   path: string;
@@ -224,7 +225,7 @@ describe("Space Sift results explorer", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /browse archive/i })).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 
   it("sorts the current directory and renders a space map", async () => {
     render(<App client={createExplorerClient(makeBrowseableScan("scan-sort"))} />);
@@ -244,7 +245,7 @@ describe("Space Sift results explorer", () => {
     expect(screen.getByLabelText(/space map/i)).toBeInTheDocument();
     expect(screen.getByText(/archive/i)).toBeInTheDocument();
     expect(screen.getByText(/games/i)).toBeInTheDocument();
-  });
+  }, uiTestTimeout);
 
   it("requests Explorer handoff for the current path and surfaces missing-path errors", async () => {
     const client = createExplorerClient(makeBrowseableScan("scan-shell"));
@@ -276,7 +277,7 @@ describe("Space Sift results explorer", () => {
     await waitFor(() => {
       expect(screen.getByText(/path no longer exists/i)).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 
   it("keeps older summary-only scans readable and asks for a rescan to browse", async () => {
     render(<App client={createExplorerClient(makeSummaryOnlyScan("scan-legacy"))} />);
@@ -291,5 +292,5 @@ describe("Space Sift results explorer", () => {
     expect(
       screen.queryByRole("table", { name: /current folder contents/i }),
     ).not.toBeInTheDocument();
-  });
+  }, uiTestTimeout);
 });

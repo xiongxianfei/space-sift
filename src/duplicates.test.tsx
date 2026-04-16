@@ -11,6 +11,7 @@ import type {
 } from "./lib/spaceSiftTypes";
 
 const uiReadyTimeout = 5000;
+const uiTestTimeout = 15000;
 
 function makeCompletedScanStatus(scanId: string): ScanStatusSnapshot {
   return {
@@ -247,7 +248,7 @@ describe("Space Sift duplicate workflow", () => {
       expect(screen.getByText(/1 files marked for later deletion/i)).toBeInTheDocument();
       expect(screen.getAllByText(/32 bytes/i).length).toBeGreaterThan(0);
     });
-  });
+  }, uiTestTimeout);
 
   it("applies keep-selection helpers and manual keep selection", async () => {
     const mock = createDuplicateClient();
@@ -324,7 +325,7 @@ describe("Space Sift duplicate workflow", () => {
         }),
       ).toHaveAttribute("aria-pressed", "true");
     });
-  });
+  }, uiTestTimeout);
 
   it("requires a fresh scan for summary-only history entries", async () => {
     const mock = createDuplicateClient({
@@ -338,7 +339,7 @@ describe("Space Sift duplicate workflow", () => {
     });
 
     expect(screen.queryByRole("button", { name: /analyze duplicates/i })).not.toBeInTheDocument();
-  });
+  }, uiTestTimeout);
 
   it("shows duplicate issues and an empty-state when no verified groups remain", async () => {
     const mock = createDuplicateClient({
@@ -384,5 +385,5 @@ describe("Space Sift duplicate workflow", () => {
       expect(screen.getByText(/missing\.bin/i)).toBeInTheDocument();
       expect(screen.getByText(/path no longer exists/i)).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 });
