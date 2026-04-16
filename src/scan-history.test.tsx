@@ -162,6 +162,7 @@ function createMockClient(options?: {
       return scan;
     }),
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: "analysis-unused" })),
+    cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () => idleDuplicateStatus),
     openDuplicateAnalysis: vi.fn(async () => {
       throw new Error("no duplicate result");

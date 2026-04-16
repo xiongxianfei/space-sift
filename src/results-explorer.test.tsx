@@ -181,6 +181,7 @@ function createExplorerClient(scan: BrowseableScanFixture, scanId = scan.scanId)
     listScanHistory: vi.fn(async () => [historyEntry]),
     openScanHistory: vi.fn(async () => scan),
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: "analysis-unused" })),
+    cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () => idleDuplicateStatus),
     openDuplicateAnalysis: vi.fn(async () => {
       throw new Error("no duplicate result");

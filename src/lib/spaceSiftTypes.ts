@@ -9,6 +9,7 @@ export type DuplicateAnalysisState =
   | "idle"
   | "running"
   | "completed"
+  | "cancelled"
   | "failed";
 
 export type DuplicateAnalysisStage =

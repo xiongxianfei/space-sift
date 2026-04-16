@@ -91,5 +91,6 @@ The current feature contract is:
 - `specs/space-sift-release.md`
 - `specs/space-sift-release.test.md`
 
-Release docs:
+Maintainer docs:
 - `docs/release.md`
+- `docs/duplicate-performance.md`

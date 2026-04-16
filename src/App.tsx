@@ -664,6 +664,21 @@ function App({ client = unsupportedClient }: AppProps) {
     }
   }
 
+  async function handleCancelDuplicateAnalysis() {
+    if (duplicateStatus.state !== "running") {
+      setNotice("No duplicate analysis is running.");
+      return;
+    }
+
+    try {
+      await client.cancelDuplicateAnalysis();
+      setNotice("Duplicate analysis cancellation requested.");
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(describeError(error));
+    }
+  }
+
   function handleBrowsePath(path: string) {
     if (!currentScan || !hasBrowseableEntries(currentScan)) {
       return;
@@ -1164,14 +1179,25 @@ function App({ client = unsupportedClient }: AppProps) {
                     <span className="status-label">Analysis state</span>
                     <p className="current-path">{duplicateStatus.state}</p>
                   </div>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => void handleStartDuplicateAnalysis()}
-                    disabled={duplicateStatus.state === "running"}
-                  >
-                    Analyze duplicates
-                  </button>
+                  <div className="action-row">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => void handleStartDuplicateAnalysis()}
+                      disabled={duplicateStatus.state === "running"}
+                    >
+                      Analyze duplicates
+                    </button>
+                    {duplicateStatus.state === "running" ? (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void handleCancelDuplicateAnalysis()}
+                      >
+                        Cancel analysis
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
 
                 {duplicateStatus.state === "running" ? (
@@ -1298,6 +1324,8 @@ function App({ client = unsupportedClient }: AppProps) {
                       </section>
                     ) : null}
                   </>
+                ) : duplicateStatus.state === "cancelled" && duplicateStatus.message ? (
+                  <p className="notice-banner">{duplicateStatus.message}</p>
                 ) : duplicateStatus.state === "failed" && duplicateStatus.message ? (
                   <p className="error-banner">{duplicateStatus.message}</p>
                 ) : (

@@ -127,25 +127,34 @@ impl DuplicateManager {
         Self {
             inner: Arc::new(Mutex::new(DuplicateRuntimeState {
                 status: DuplicateStatusSnapshot::default(),
-                active_analysis_id: None,
+                active: None,
                 latest_result: None,
             })),
         }
     }
 
-    pub fn start(&self, analysis_id: String, scan_id: String) -> Result<(), String> {
+    pub fn start(
+        &self,
+        analysis_id: String,
+        scan_id: String,
+    ) -> Result<ActiveDuplicateHandle, String> {
         let mut runtime = self
             .inner
             .lock()
             .map_err(|_| "The duplicate state lock is poisoned.".to_string())?;
 
-        if runtime.active_analysis_id.is_some() {
-            return Err("One duplicate analysis at a time. Wait for the current analysis to finish.".to_string());
+        if runtime.active.is_some() {
+            return Err(
+                "One duplicate analysis at a time. Wait for the current analysis to finish."
+                    .to_string(),
+            );
         }
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
 
         runtime.status = DuplicateStatusSnapshot {
             analysis_id: Some(analysis_id.clone()),
-            scan_id: Some(scan_id),
+            scan_id: Some(scan_id.clone()),
             state: DuplicateAnalysisState::Running,
             stage: Some(DuplicateAnalysisStage::Grouping),
             items_processed: 0,
@@ -153,9 +162,15 @@ impl DuplicateManager {
             message: None,
             completed_analysis_id: None,
         };
-        runtime.active_analysis_id = Some(analysis_id);
+        runtime.active = Some(ActiveDuplicateRuntime {
+            cancel_flag: Arc::clone(&cancel_flag),
+        });
         runtime.latest_result = None;
-        Ok(())
+        Ok(ActiveDuplicateHandle {
+            analysis_id,
+            scan_id,
+            cancel_flag,
+        })
     }
 
     pub fn status(&self) -> Result<DuplicateStatusSnapshot, String> {
@@ -173,7 +188,21 @@ impl DuplicateManager {
         }
     }
 
-    pub fn complete_with_result(&self, result: CompletedDuplicateAnalysis) -> DuplicateStatusSnapshot {
+    pub fn cancel_active_analysis(&self) -> bool {
+        if let Ok(runtime) = self.inner.lock() {
+            if let Some(active) = &runtime.active {
+                active.cancel_flag.store(true, Ordering::SeqCst);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn complete_with_result(
+        &self,
+        result: CompletedDuplicateAnalysis,
+    ) -> DuplicateStatusSnapshot {
         if let Ok(mut runtime) = self.inner.lock() {
             runtime.status = DuplicateStatusSnapshot {
                 analysis_id: Some(result.analysis_id.clone()),
@@ -181,12 +210,40 @@ impl DuplicateManager {
                 state: DuplicateAnalysisState::Completed,
                 stage: Some(DuplicateAnalysisStage::Completed),
                 items_processed: runtime.status.items_processed,
-                groups_emitted: runtime.status.groups_emitted.max(result.groups.len() as u64),
+                groups_emitted: runtime
+                    .status
+                    .groups_emitted
+                    .max(result.groups.len() as u64),
                 message: Some("Duplicate analysis complete.".to_string()),
                 completed_analysis_id: Some(result.analysis_id.clone()),
             };
-            runtime.active_analysis_id = None;
+            runtime.active = None;
             runtime.latest_result = Some(result);
+            return runtime.status.clone();
+        }
+
+        DuplicateStatusSnapshot::default()
+    }
+
+    pub fn cancelled(
+        &self,
+        analysis_id: String,
+        scan_id: String,
+        message: String,
+    ) -> DuplicateStatusSnapshot {
+        if let Ok(mut runtime) = self.inner.lock() {
+            runtime.status = DuplicateStatusSnapshot {
+                analysis_id: Some(analysis_id),
+                scan_id: Some(scan_id),
+                state: DuplicateAnalysisState::Cancelled,
+                stage: None,
+                items_processed: runtime.status.items_processed,
+                groups_emitted: runtime.status.groups_emitted,
+                message: Some(message),
+                completed_analysis_id: None,
+            };
+            runtime.active = None;
+            runtime.latest_result = None;
             return runtime.status.clone();
         }
 
@@ -210,7 +267,7 @@ impl DuplicateManager {
                 message: Some(message),
                 completed_analysis_id: None,
             };
-            runtime.active_analysis_id = None;
+            runtime.active = None;
             runtime.latest_result = None;
             return runtime.status.clone();
         }
@@ -284,6 +341,13 @@ pub struct ActiveScanHandle {
     pub cancel_flag: Arc<AtomicBool>,
 }
 
+#[derive(Clone)]
+pub struct ActiveDuplicateHandle {
+    pub analysis_id: String,
+    pub scan_id: String,
+    pub cancel_flag: Arc<AtomicBool>,
+}
+
 struct ScanRuntimeState {
     status: ScanStatusSnapshot,
     active: Option<ActiveScanRuntime>,
@@ -295,8 +359,12 @@ struct ActiveScanRuntime {
 
 struct DuplicateRuntimeState {
     status: DuplicateStatusSnapshot,
-    active_analysis_id: Option<String>,
+    active: Option<ActiveDuplicateRuntime>,
     latest_result: Option<CompletedDuplicateAnalysis>,
+}
+
+struct ActiveDuplicateRuntime {
+    cancel_flag: Arc<AtomicBool>,
 }
 
 struct CleanupRuntimeState {
