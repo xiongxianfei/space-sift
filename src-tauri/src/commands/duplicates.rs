@@ -1,10 +1,11 @@
-use crate::state::{AppState, DuplicateManager};
+use crate::state::{ActiveDuplicateHandle, AppState, DuplicateManager};
 use duplicates_core::{
-    DuplicateAnalysisFailure, DuplicateAnalysisRequest, DuplicateAnalysisState,
-    DuplicateCandidate, DuplicateStatusSnapshot,
+    DuplicateAnalysisFailure, DuplicateAnalysisRequest, DuplicateAnalysisState, DuplicateCandidate,
+    DuplicateStatusSnapshot,
 };
 use scan_core::{CompletedScan, ScanEntryKind};
 use serde::Serialize;
+use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, State};
 
 #[derive(Debug, Serialize)]
@@ -29,7 +30,7 @@ pub fn start_duplicate_analysis(
         .clone()
         .ok_or_else(|| "duplicate analysis identifier was not created".to_string())?;
 
-    state
+    let active_analysis = state
         .duplicate_manager
         .start(analysis_id.clone(), request.scan_id.clone())?;
     let initial_snapshot = state.duplicate_manager.status()?;
@@ -40,10 +41,22 @@ pub fn start_duplicate_analysis(
     let history_store = state.history_store.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        run_duplicate_task(app_handle, duplicate_manager, history_store, request);
+        run_duplicate_task(
+            app_handle,
+            duplicate_manager,
+            history_store,
+            active_analysis,
+            request,
+        );
     });
 
     Ok(StartDuplicateAnalysisResponse { analysis_id })
+}
+
+#[tauri::command]
+pub fn cancel_duplicate_analysis(state: State<'_, AppState>) -> Result<(), String> {
+    state.duplicate_manager.cancel_active_analysis();
+    Ok(())
 }
 
 #[tauri::command]
@@ -87,29 +100,40 @@ fn run_duplicate_task(
     app: AppHandle,
     duplicate_manager: DuplicateManager,
     history_store: app_db::HistoryStore,
+    active_analysis: ActiveDuplicateHandle,
     request: DuplicateAnalysisRequest,
 ) {
-    let analysis_id = request
-        .analysis_id
-        .clone()
-        .unwrap_or_else(duplicates_core::make_analysis_id);
-    let scan_id = request.scan_id.clone();
-
-    let result = duplicates_core::analyze_duplicates(&history_store, &request, |snapshot| {
-        duplicate_manager.update_snapshot(snapshot.clone());
-        if snapshot.state != DuplicateAnalysisState::Completed {
-            let _ = emit_snapshot(&app, &snapshot);
-        }
-    });
+    let result = duplicates_core::analyze_duplicates(
+        &history_store,
+        &request,
+        || active_analysis.cancel_flag.load(Ordering::SeqCst),
+        |snapshot| {
+            duplicate_manager.update_snapshot(snapshot.clone());
+            if snapshot.state != DuplicateAnalysisState::Completed {
+                let _ = emit_snapshot(&app, &snapshot);
+            }
+        },
+    );
 
     match result {
         Ok(completed_analysis) => {
             let snapshot = duplicate_manager.complete_with_result(completed_analysis);
             let _ = emit_snapshot(&app, &snapshot);
         }
+        Err(DuplicateAnalysisFailure::Cancelled) => {
+            let snapshot = duplicate_manager.cancelled(
+                active_analysis.analysis_id,
+                active_analysis.scan_id,
+                "Duplicate analysis cancelled before completion.".to_string(),
+            );
+            let _ = emit_snapshot(&app, &snapshot);
+        }
         Err(error) => {
-            let snapshot =
-                duplicate_manager.fail(analysis_id, scan_id, duplicate_failure_message(error));
+            let snapshot = duplicate_manager.fail(
+                active_analysis.analysis_id,
+                active_analysis.scan_id,
+                duplicate_failure_message(error),
+            );
             let _ = emit_snapshot(&app, &snapshot);
         }
     }
@@ -118,6 +142,9 @@ fn run_duplicate_task(
 fn duplicate_failure_message(error: DuplicateAnalysisFailure) -> String {
     match error {
         DuplicateAnalysisFailure::InvalidRequest { message } => message,
+        DuplicateAnalysisFailure::Cancelled => {
+            "Duplicate analysis cancelled before completion.".to_string()
+        }
         DuplicateAnalysisFailure::Internal { message } => message,
     }
 }

@@ -20,6 +20,7 @@ export type SpaceSiftClient = {
   listScanHistory(): Promise<ScanHistoryEntry[]>;
   openScanHistory(scanId: string): Promise<CompletedScan>;
   startDuplicateAnalysis(scanId: string): Promise<{ analysisId: string }>;
+  cancelDuplicateAnalysis(): Promise<void>;
   getDuplicateAnalysisStatus(): Promise<DuplicateStatusSnapshot>;
   openDuplicateAnalysis(analysisId: string): Promise<CompletedDuplicateAnalysis>;
   listCleanupRules(): Promise<CleanupRuleDefinition[]>;
@@ -82,6 +83,9 @@ export const unsupportedClient: SpaceSiftClient = {
     throw new Error("The Space Sift desktop bridge is not connected yet.");
   },
   async startDuplicateAnalysis() {
+    throw new Error("The Space Sift desktop bridge is not connected yet.");
+  },
+  async cancelDuplicateAnalysis() {
     throw new Error("The Space Sift desktop bridge is not connected yet.");
   },
   async getDuplicateAnalysisStatus() {

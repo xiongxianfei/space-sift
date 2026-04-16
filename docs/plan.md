@@ -13,6 +13,12 @@ This file tracks active, blocked, done, and superseded plans.
 - none yet
 
 ## Done
+- [2026-04-16-fast-safe-duplicate-analysis.md](plans/2026-04-16-fast-safe-duplicate-analysis.md)
+  - status: done
+  - scope: defined and implemented a fast, full-hash-correct,
+    disk-friendly duplicate-analysis architecture with measurement,
+    explicit cache/writeback strategy, cloud/remote safety rules,
+    bounded hashing concurrency, and recorded real-folder validation
 - [2026-04-16-results-explorer-inline-usage.md](plans/2026-04-16-results-explorer-inline-usage.md)
   - status: done
   - scope: replaced the split results explorer + space-map layout with a

@@ -1,7 +1,7 @@
 # Space Sift Duplicate Detection Test Spec
 
 This test spec maps `specs/space-sift-duplicates.md` to concrete tests for
-Milestone 4.
+Milestone 4 and the follow-on fast-safe duplicate-performance work.
 
 ## Test cases
 
@@ -17,6 +17,11 @@ Milestone 4.
 | T8 | R17, O3 | unit/integration | Reuse cached hash metadata for an unchanged file and invalidate the cache when the file metadata changes | Valid cache entries are reused, stale entries are ignored or recomputed, and correctness is preserved |
 | T9 | R18, Invariants | component | Run duplicate analysis and adjust preview selections | No filesystem mutation command is triggered; the workflow remains preview-only |
 | T10 | E1, E3, E5 | component | Attempt duplicate analysis without a loaded scan, then run an analysis that finds no verified groups, then simulate a failure | The UI shows a prerequisite message, an explicit empty state, and a clean failure state respectively |
+| T11 | R7, R8, R8a, R19, E7, Edge 7, O4 | component | Start duplicate analysis, observe a running stage, request cancellation, and receive a cancelled terminal snapshot | The UI exposes a cancel action during the running state, stops showing running progress after cancellation, and does not show partial duplicate groups as completed output |
+| T12 | R8, O7 | unit | Run duplicate analysis across a large duplicate candidate set while collecting progress snapshots | Progress emission stays bounded rather than emitting once per processed item, while the terminal snapshot still reports the final totals |
+| T13 | R19, E7, O7 | unit | Trigger cancellation just before or during full-hash verification of a candidate set | Duplicate analysis returns a cancelled outcome promptly and does not emit completed groups |
+| T14 | R3, R3a, R3b, E8, Edge 8, Edge 9, O9 | unit/integration | Simulate candidate files on a non-primary path class where hashing would require hidden network-backed reads or placeholder hydration | The analyzer preserves the local-only contract by skipping or reporting the affected files, or by routing them through a safer fallback, and never emits them as verified duplicates without full safe verification |
+| T15 | R3b, C4, O8 | manual/integration | Validate one large local fixed-volume candidate set, one warm rerun on the same set, and one non-primary path class if locally available | Validation records show the local fixed-volume baseline and warm rerun, and show that non-primary paths stay on a safe fallback or reduced-impact policy while preserving duplicate correctness |
 
 ## Coverage by requirement
 
@@ -24,12 +29,15 @@ Milestone 4.
 | --- | --- |
 | R1 | T1 |
 | R2 | T7 |
-| R3 | T1 |
+| R3 | T1, T14 |
+| R3a | T14 |
+| R3b | T14, T15 |
 | R4 | T1 |
 | R5 | T2, T3 |
 | R6 | T2 |
 | R7 | T1 |
 | R8 | T1 |
+| R8a | T11 |
 | R9 | T2 |
 | R10 | T4 |
 | R11 | T4 |
@@ -40,18 +48,25 @@ Milestone 4.
 | R16 | T6 |
 | R17 | T8 |
 | R18 | T9 |
+| R19 | T11, T13 |
 | E1 | T10 |
 | E2 | T7 |
 | E3 | T10 |
 | E4 | T5 |
 | E5 | T10 |
 | E6 | T3 |
+| E7 | T11, T13 |
+| E8 | T14 |
 | O1 | T2, T3 |
 | O2 | T5 |
 | O3 | T8 |
-| O4 | T1, T4, T6, T9, T10 |
+| O4 | T1, T4, T6, T9, T10, T11 |
 | O5 | T7 |
-| O6 | T1, T2, T3, T4, T5, T6, T7, T8, T9, T10 |
+| O6 | T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15 |
+| O7 | T12, T13 |
+| O8 | T15 |
+| O9 | T14 |
+| C4 | T15 |
 
 ## Fixtures and scenarios
 
@@ -63,10 +78,15 @@ Milestone 4.
 - Integration tests for caching should use a local SQLite fixture and record
   cached partial and full hash results against file metadata that can be
   changed between assertions.
+- Integration fixtures for path-class fallback should include a backend stub or
+  seam that can simulate files which would require placeholder hydration or
+  hidden network-backed reads if opened normally.
 - Frontend tests should stub the desktop bridge and drive duplicate-analysis
   state from in-memory scan payloads based on the Milestone 3 `entries` model.
 - At least one frontend fixture should represent a pre-Milestone-3 summary-only
   history entry with no file-entry data.
+- Manual performance validation should reuse the same candidate set for the
+  cold and warm local fixed-volume runs so cache reuse claims are comparable.
 
 ## What not to test
 
@@ -79,5 +99,8 @@ Milestone 4.
 
 - A later manual smoke test should verify duplicate analysis against a real
   Windows folder tree with large files and the actual Tauri desktop shell.
+- If the local validation machine does not expose a suitable non-primary path
+  class or placeholder-backed path, record that explicitly instead of claiming
+  those cases were exercised.
 - Milestone 5 should extend this coverage with execution-path tests once
   duplicate preview actions can hand off to cleanup or Recycle Bin flows.

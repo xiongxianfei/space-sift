@@ -18,6 +18,7 @@ Recycle Bin execution yet.
 
 Related plan:
 - `docs/plans/2026-04-15-space-sift-win11-mvp.md`
+- `docs/plans/2026-04-16-fast-safe-duplicate-analysis.md`
 
 ## Examples
 
@@ -54,6 +55,22 @@ modified after the scan completed, when duplicate analysis reaches that file,
 then the app excludes it from verified groups and reports a clean issue instead
 of treating it as a duplicate.
 
+### Example 6: cancel a long-running duplicate analysis
+
+Given duplicate analysis is still hashing a large set of candidate files, when
+the user requests cancellation, then the active analysis stops promptly,
+surfaces a cancelled state, and does not present partial duplicate groups as a
+completed result.
+
+### Example 7: avoid hidden network-backed or placeholder-backed reads
+
+Given a loaded scan includes files on a non-primary path class such as a
+remote, removable, or on-demand cloud-backed location, when duplicate analysis
+cannot safely hash a file without triggering hidden network-backed reads or
+placeholder hydration, then the app keeps the workflow local-only by using a
+safer fallback or by skipping and reporting the affected file instead of
+silently hydrating it.
+
 ## Inputs and outputs
 
 Inputs:
@@ -69,6 +86,7 @@ Outputs:
   cleanup candidates
 - an estimated reclaimable-byte total from the current preview selection
 - an issue list for files that could not be safely verified
+- a cancelled terminal state when the user interrupts a running analysis
 
 ## Duplicate analysis model
 
@@ -104,6 +122,13 @@ cache entry is still valid for the current file on disk.
   fresh scan is required.
 - R3: Duplicate analysis in Milestone 4 MUST remain local-only and MUST NOT
   require network access, cloud synchronization, or administrator elevation.
+- R3a: Duplicate analysis MUST NOT silently trigger network-backed reads or
+  on-demand cloud-file hydration as a side effect of hashing candidate files.
+- R3b: Local fixed-volume paths are the primary optimization target for
+  duplicate-analysis performance work. Remote, removable, cloud-backed, or
+  otherwise non-primary path classes MAY use a slower or more conservative
+  verification path, but they MUST preserve the same full-hash, read-only,
+  cancellation-aware safety contract.
 - R4: Duplicate analysis MUST consider only file entries from the current scan
   result. Directory entries MUST NOT appear as duplicate candidates.
 - R5: A file MUST NOT be shown in a duplicate group unless it passed all of
@@ -119,10 +144,14 @@ cache entry is still valid for the current file on disk.
   - `idle`
   - `running`
   - `completed`
+  - `cancelled`
   - `failed`
 - R8: While duplicate analysis is running, the UI MUST expose visible progress
   that includes at least the current stage and a monotonic count of candidate
-  files or groups processed.
+  files or groups processed. Progress updates MAY be rate-limited for large
+  analyses, but terminal state changes MUST still surface promptly.
+- R8a: While duplicate analysis is running, the user MUST be able to request
+  cancellation from the duplicate-analysis UI.
 - R9: The UI MUST show only fully verified duplicate groups in the completed
   result view.
 - R10: Each completed duplicate group MUST show:
@@ -158,6 +187,10 @@ cache entry is still valid for the current file on disk.
 - R18: Milestone 4 duplicate analysis and preview MUST remain read-only with
   respect to the filesystem. These actions MUST NOT move, delete, recycle, or
   rename files.
+- R19: If the user cancels duplicate analysis, the app MUST stop the active
+  analysis promptly, surface a `cancelled` state with a clear message, and
+  MUST NOT present partial duplicate groups as if they were a completed
+  result.
 
 ## Invariants
 
@@ -165,6 +198,8 @@ cache entry is still valid for the current file on disk.
 - Duplicate preview is advisory and read-only in Milestone 4.
 - Every duplicate group preview keeps at least one file.
 - Duplicate analysis stays scoped to the currently loaded scan root.
+- Cancelling duplicate analysis never converts partial verification work into a
+  completed duplicate result.
 
 ## Error handling and boundary behavior
 
@@ -182,6 +217,14 @@ cache entry is still valid for the current file on disk.
 - E6: If a file is smaller than the partial-hash window, the staged pipeline
   MAY skip directly from size grouping to full-hash verification, but it still
   MUST require full-hash confirmation before showing a group.
+- E7: If duplicate analysis is cancelled while hashing large files, the UI MUST
+  surface a clean cancelled state rather than continuing to show the analysis
+  as running indefinitely.
+- E8: If verifying a file would require hidden network-backed reads,
+  placeholder hydration, or another path-class-specific side effect that would
+  violate the local-only contract, the app MUST skip and report that file or
+  apply a safer fallback policy instead of silently continuing with the risky
+  read.
 
 ## Compatibility and migration
 
@@ -191,6 +234,10 @@ cache entry is still valid for the current file on disk.
   are not eligible for duplicate analysis.
 - C3: SQLite-backed hash caching SHOULD remain additive so existing scan
   history stays readable if duplicate cache tables or columns are introduced.
+- C4: Future duplicate-performance work MAY optimize local fixed-volume paths
+  more aggressively than remote, removable, or cloud-backed paths, but every
+  path class MUST continue to honor the same duplicate-result correctness and
+  read-only guarantees.
 
 ## Observability expectations
 
@@ -201,12 +248,21 @@ cache entry is still valid for the current file on disk.
 - O3: Rust tests MUST cover hash-cache reuse and invalidation rules when local
   duplicate caching is implemented.
 - O4: Frontend tests MUST cover running duplicate analysis from a loaded scan,
-  showing verified groups, applying keep-selection helpers, and updating the
-  preview summary.
+  showing verified groups, applying keep-selection helpers, updating the
+  preview summary, and cancelling a running analysis.
 - O5: Frontend tests MUST cover the rescan-required fallback for older
   history entries that lack file-entry data.
 - O6: Milestone verification MUST include focused duplicate tests in both Rust
   and the frontend.
+- O7: Rust tests MUST cover bounded progress emission for large duplicate
+  analyses and prompt cancellation during hashing.
+- O8: Duplicate-performance validation MUST record at least one large local
+  fixed-volume run, one warm rerun on the same candidate set, and one
+  non-primary path class if available, or an explicit note that such a path
+  class was unavailable on the validation machine.
+- O9: Rust or integration coverage MUST verify that files which cannot be read
+  without violating the local-only contract are skipped or reported cleanly
+  rather than treated as verified duplicates.
 
 ## Edge cases
 
@@ -222,6 +278,14 @@ cache entry is still valid for the current file on disk.
   a broken duplicate workflow.
 - Edge 6: A duplicate group with only two members still supports helper-based
   keep selection and a correct reclaimable-byte preview.
+- Edge 7: Cancelling duplicate analysis during full hashing leaves the workflow
+  in a cancelled state without any partial duplicate result.
+- Edge 8: A file that would require placeholder hydration or hidden
+  network-backed reads to hash is skipped or reported instead of being silently
+  hydrated.
+- Edge 9: A non-primary path class may run a slower or more conservative
+  duplicate-verification path, but it still emits only fully verified groups
+  and preserves prompt cancellation.
 
 ## Non-goals
 
@@ -242,3 +306,9 @@ cache entry is still valid for the current file on disk.
   again when file-entry data is available.
 - A reviewer opening an older summary-only history entry sees a rescan prompt
   instead of a broken duplicate workflow.
+- A reviewer can cancel a long-running duplicate analysis and see the workflow
+  stop without partial duplicate groups being shown as completed output.
+- A reviewer or maintainer validating duplicate-performance changes can show
+  that local fixed-volume runs remain full-hash-correct while non-primary path
+  classes preserve the same local-only safety contract through fallback or
+  clean issue reporting.
