@@ -277,16 +277,52 @@ describe("Space Sift duplicate workflow", () => {
     });
 
     const group = await screen.findByTestId("duplicate-group-analysis-1-group-1");
-    expect(within(group).getByText(/delete candidate/i)).toBeInTheDocument();
+    expect(
+      within(group).getByRole("button", { name: /keep newest/i }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(group).getByRole("button", { name: /keep oldest/i }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(
+      within(group).getByRole("button", {
+        name: /delete candidate for left\.bin/i,
+      }),
+    ).toBeInTheDocument();
 
     fireEvent.click(within(group).getByRole("button", { name: /keep oldest/i }));
-    expect(within(group).getByText(/left\.bin/i)).toBeInTheDocument();
 
-    fireEvent.click(within(group).getByRole("button", { name: /keep right\.bin/i }));
+    await waitFor(() => {
+      expect(
+        within(group).getByRole("button", { name: /keep oldest/i }),
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(
+        within(group).getByRole("button", {
+          name: /kept copy for left\.bin/i,
+        }),
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(
+        within(group).getByRole("button", {
+          name: /delete candidate for right\.bin/i,
+        }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      within(group).getByRole("button", {
+        name: /delete candidate for right\.bin/i,
+      }),
+    );
 
     await waitFor(() => {
       expect(screen.getByText(/1 files marked for later deletion/i)).toBeInTheDocument();
-      expect(within(group).getAllByText(/kept copy/i).length).toBe(1);
+      expect(
+        within(group).getByRole("button", { name: /keep newest/i }),
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(
+        within(group).getByRole("button", {
+          name: /kept copy for right\.bin/i,
+        }),
+      ).toHaveAttribute("aria-pressed", "true");
     });
   });
 
