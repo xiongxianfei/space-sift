@@ -204,7 +204,9 @@ where
     reporter.emit();
 
     let mut issues = Vec::new();
-    let validated_candidates = validate_candidates(request, &mut reporter, &mut issues)?;
+    let duplicate_size_candidates = duplicate_size_candidates(&request.candidates);
+    let validated_candidates =
+        validate_candidates(&duplicate_size_candidates, &mut reporter, &mut issues)?;
     let mut groups = Vec::new();
 
     for size_group in group_by_size(validated_candidates).into_values() {
@@ -256,7 +258,7 @@ where
 }
 
 fn validate_candidates<F>(
-    request: &DuplicateAnalysisRequest,
+    candidates: &[DuplicateCandidate],
     reporter: &mut DuplicateProgressReporter<'_, F>,
     issues: &mut Vec<DuplicateIssue>,
 ) -> Result<Vec<LiveCandidate>, DuplicateAnalysisFailure>
@@ -266,7 +268,7 @@ where
     let mut unique_paths = HashSet::new();
     let mut validated = Vec::new();
 
-    for candidate in &request.candidates {
+    for candidate in candidates {
         reporter.set_stage(DuplicateAnalysisStage::Grouping);
 
         if !unique_paths.insert(candidate.path.clone()) {
@@ -284,6 +286,19 @@ where
     }
 
     Ok(validated)
+}
+
+fn duplicate_size_candidates(candidates: &[DuplicateCandidate]) -> Vec<DuplicateCandidate> {
+    let mut counts = HashMap::new();
+    for candidate in candidates {
+        *counts.entry(candidate.size_bytes).or_insert(0_u64) += 1;
+    }
+
+    candidates
+        .iter()
+        .filter(|candidate| counts.get(&candidate.size_bytes).copied().unwrap_or(0) > 1)
+        .cloned()
+        .collect()
 }
 
 fn validate_candidate(candidate: &DuplicateCandidate) -> Result<Option<LiveCandidate>, DuplicateIssue> {
@@ -814,5 +829,54 @@ mod tests {
 
         assert!(third.groups.is_empty());
         assert!(*cache.full_saves.borrow() > first_full_saves);
+    }
+
+    #[test]
+    fn duplicate_analysis_skips_unique_size_candidates_before_validation() {
+        let fixture = tempdir().expect("fixture directory");
+        let root = fixture.path();
+        let left = root.join("left.bin");
+        let right = root.join("right.bin");
+        let mut candidates = Vec::new();
+        let mut snapshots = Vec::new();
+
+        std::fs::write(&left, vec![5_u8; 4096]).expect("left");
+        std::fs::write(&right, vec![5_u8; 4096]).expect("right");
+        candidates.push(DuplicateCandidate {
+            path: left.display().to_string(),
+            size_bytes: 4096,
+        });
+        candidates.push(DuplicateCandidate {
+            path: right.display().to_string(),
+            size_bytes: 4096,
+        });
+
+        for index in 1..=48 {
+            let path = root.join(format!("unique-{index}.bin"));
+            std::fs::write(&path, vec![index as u8; index]).expect("unique fixture");
+            candidates.push(DuplicateCandidate {
+                path: path.display().to_string(),
+                size_bytes: index as u64,
+            });
+        }
+
+        let request = DuplicateAnalysisRequest::new(
+            "scan-prefilter",
+            root.display().to_string(),
+            candidates,
+        );
+
+        let result = analyze_duplicates(&NoopHashCache, &request, |snapshot| {
+            snapshots.push(snapshot);
+        })
+        .expect("analysis should succeed");
+
+        assert_eq!(result.groups.len(), 1);
+        assert_eq!(result.groups[0].members.len(), 2);
+        assert_eq!(
+            snapshots.last().expect("completed snapshot").items_processed,
+            4,
+            "only repeated-size candidates should be validated and hashed",
+        );
     }
 }
