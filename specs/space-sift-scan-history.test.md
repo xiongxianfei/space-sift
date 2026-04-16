@@ -16,6 +16,9 @@ Milestone 2.
 | T7 | R1, R2, R3, R13, R15 | component | Render the Milestone 2 shell, start a scan, and attempt to start a second scan while one is active | The UI shows running progress and blocks or rejects the second scan clearly |
 | T8 | R9, Invariants | component | Cancel an active scan from the UI | The UI shows cancelled state and the cancelled result does not appear in history |
 | T9 | R10, R11, R12 | component | Load a seeded history list and reopen a completed scan | The scan summary renders from stored local data without invoking a rescan |
+| T10 | R16, O6, Edge 9 | rust unit or integration | Run an ordinary scan through an instrumented scan backend or fixture seam that can detect duplicate-style hashing or file-body reads | The scan completes without invoking duplicate hashing, file sampling, or full content reads |
+| T11 | R17, R18, R19, E6, Edge 8 | rust integration | Scan a fixture or injected path classified as a supported non-primary path and force the optimized backend to be unavailable | The scan uses the safe fallback path, preserves the normal result contract, and does not require elevation or content reads |
+| T12 | O5, acceptance criteria | manual smoke | Compare one large local fixed-volume scan with one available non-primary path class | The maintainer records that the local fixed-volume path is the primary optimization target and that the fallback path still honors the same read-only contract |
 
 ## Coverage by requirement
 
@@ -36,15 +39,22 @@ Milestone 2.
 | R13 | T7 |
 | R14 | T6 |
 | R15 | T7, T9 |
+| R16 | T10 |
+| R17 | T11, T12 |
+| R18 | T11, T12 |
+| R19 | T11 |
 | E1 | T2 |
 | E2 | T3 |
 | E3 | T1 |
 | E4 | T6 |
 | E5 | T5 |
+| E6 | T11 |
 | O1 | T1, T2, T3, T4 |
 | O2 | T5, T6 |
 | O3 | T7, T8, T9 |
 | O4 | T1, T2, T3, T4, T5, T6, T7, T8, T9 |
+| O5 | T12 |
+| O6 | T10 |
 
 ## Fixtures and scenarios
 
@@ -52,6 +62,9 @@ Milestone 2.
   `tests/fixtures/scan/`.
 - History tests should use temporary SQLite databases or test-only database
   files under `tests/fixtures/history/` when durable fixture data is needed.
+- Fast-safe scan tests may use injected path classifiers or backend-selection
+  seams so local fixed-volume and fallback-path behavior can be covered without
+  depending on real network infrastructure in every automated run.
 - Frontend tests may stub the Tauri invoke bridge and in-memory event payloads
   instead of launching the desktop shell.
 
@@ -61,10 +74,17 @@ Milestone 2.
 - Cleanup rule previews or deletion flows
 - Elevated helper behavior
 - Installer, signing, or winget distribution
+- The exact internal Windows enumeration API choice, because the spec only
+  fixes the user-visible contract and safety boundaries
 
 ## Gaps and follow-up
 
 - Real Windows permission-denied and reparse-point behavior may still need a
   manual smoke test in addition to unit coverage.
+- A manual Windows 11 smoke run on a genuinely large folder should confirm that
+  the chosen fallback path still honors the read-only contract outside
+  synthetic fixtures.
+- If the repo does not yet expose a backend-selection seam, the fast-safe scan
+  initiative should add one before T11 is implemented.
 - Later milestones must extend the test plan with results drill-down,
   duplicates, cleanup previews, and signed release verification.

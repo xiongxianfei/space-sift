@@ -44,7 +44,12 @@ impl ScanManager {
         }
     }
 
-    pub fn start(&self, scan_id: String, root_path: String) -> Result<ActiveScanHandle, String> {
+    pub fn start(
+        &self,
+        scan_id: String,
+        root_path: String,
+        started_at: String,
+    ) -> Result<ActiveScanHandle, String> {
         let mut runtime = self
             .inner
             .lock()
@@ -62,17 +67,21 @@ impl ScanManager {
         });
         runtime.status = ScanStatusSnapshot {
             scan_id: Some(scan_id.clone()),
-            root_path: Some(root_path),
+            root_path: Some(root_path.clone()),
             state: ScanLifecycleState::Running,
             files_discovered: 0,
             directories_discovered: 0,
             bytes_processed: 0,
+            started_at: Some(started_at.clone()),
+            updated_at: Some(started_at.clone()),
+            current_path: Some(root_path),
             message: None,
             completed_scan_id: None,
         };
 
         Ok(ActiveScanHandle {
             scan_id,
+            started_at,
             cancel_flag,
         })
     }
@@ -271,6 +280,7 @@ impl CleanupManager {
 #[derive(Clone)]
 pub struct ActiveScanHandle {
     pub scan_id: String,
+    pub started_at: String,
     pub cancel_flag: Arc<AtomicBool>,
 }
 

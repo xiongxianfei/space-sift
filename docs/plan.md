@@ -13,6 +13,11 @@ This file tracks active, blocked, done, and superseded plans.
 - none yet
 
 ## Done
+- [2026-04-16-fast-safe-scan-architecture.md](plans/2026-04-16-fast-safe-scan-architecture.md)
+  - status: done
+  - scope: defined and implemented a metadata-first, disk-friendly scan
+    architecture with a Windows fixed-volume backend, explicit fallback matrix,
+    bounded scheduling, and recorded large-folder validation
 - [2026-04-16-results-explorer-inline-usage.md](plans/2026-04-16-results-explorer-inline-usage.md)
   - status: done
   - scope: replaced the split results explorer + space-map layout with a
