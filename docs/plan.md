@@ -3,6 +3,11 @@
 This file tracks active, blocked, done, and superseded plans.
 
 ## Active
+- [2026-04-16-scan-progress-and-active-run-ux.md](plans/2026-04-16-scan-progress-and-active-run-ux.md)
+  - status: active
+  - scope: make large scans feel faster and clearer by improving scan telemetry,
+    reducing progress-event overhead, and separating active scans from prior
+    completed results in the UI
 - [2026-04-15-space-sift-win11-mvp.md](plans/2026-04-15-space-sift-win11-mvp.md)
   - status: active
   - scope: turn the repository template into the first approved `Space Sift`

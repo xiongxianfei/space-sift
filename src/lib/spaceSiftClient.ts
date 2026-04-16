@@ -50,6 +50,9 @@ export const idleScanStatus: ScanStatusSnapshot = {
   filesDiscovered: 0,
   directoriesDiscovered: 0,
   bytesProcessed: 0,
+  startedAt: null,
+  updatedAt: null,
+  currentPath: null,
   message: null,
   completedScanId: null,
 };

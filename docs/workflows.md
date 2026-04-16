@@ -30,6 +30,10 @@ Notes:
 - Add or update a regression test first when feasible.
 - Keep the fix smaller than the bug report whenever possible.
 - State the verified reproduction path and the verified fix path.
+- In Tauri-style command-plus-event flows, do not let optimistic post-command
+  UI state overwrite fresher event-driven snapshots for the same operation ID.
+  A fast backend can emit `running` or even terminal state before the awaited
+  `start_*` command resolves.
 
 ## CI workflow
 
