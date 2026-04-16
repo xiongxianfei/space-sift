@@ -33,6 +33,9 @@ function createIdleClient(): SpaceSiftClient {
     async startDuplicateAnalysis() {
       throw new Error("no duplicate analysis");
     },
+    async cancelDuplicateAnalysis() {
+      throw new Error("no duplicate analysis");
+    },
     async getDuplicateAnalysisStatus() {
       return idleDuplicateStatus;
     },

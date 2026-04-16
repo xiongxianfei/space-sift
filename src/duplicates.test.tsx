@@ -162,6 +162,7 @@ function createDuplicateClient(options?: {
     listScanHistory: vi.fn(async () => [makeHistoryEntry(scan.scanId)]),
     openScanHistory: vi.fn(async () => scan),
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: duplicateAnalysis.analysisId })),
+    cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () => makeIdleDuplicateStatus()),
     openDuplicateAnalysis: vi.fn(async () => duplicateAnalysis),
     listCleanupRules: vi.fn(async () => []),
@@ -247,6 +248,67 @@ describe("Space Sift duplicate workflow", () => {
       expect(screen.getByText(/right\.bin/i)).toBeInTheDocument();
       expect(screen.getByText(/1 files marked for later deletion/i)).toBeInTheDocument();
       expect(screen.getAllByText(/32 bytes/i).length).toBeGreaterThan(0);
+    });
+  }, uiTestTimeout);
+
+  it("cancels a running duplicate analysis and returns to a clean review state", async () => {
+    const mock = createDuplicateClient();
+    render(<App client={mock.client} />);
+
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /analyze duplicates/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /analyze duplicates/i }));
+
+    await act(async () => {
+      mock.emitDuplicate({
+        analysisId: "analysis-1",
+        scanId: "scan-duplicates",
+        state: "running",
+        stage: "full_hash",
+        itemsProcessed: 3,
+        groupsEmitted: 0,
+        message: null,
+        completedAnalysisId: null,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/full hash/i)).toBeInTheDocument();
+      expect(screen.getByText(/3 items processed/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /cancel analysis/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /cancel analysis/i }));
+    expect(mock.client.cancelDuplicateAnalysis).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      mock.emitDuplicate({
+        analysisId: "analysis-1",
+        scanId: "scan-duplicates",
+        state: "cancelled",
+        stage: null,
+        itemsProcessed: 3,
+        groupsEmitted: 0,
+        message: "Duplicate analysis cancelled before completion.",
+        completedAnalysisId: null,
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/duplicate analysis cancelled before completion/i),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/3 items processed/i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /analyze duplicates/i })).toBeEnabled();
+      expect(
+        screen.queryByTestId("duplicate-group-analysis-1-group-1"),
+      ).not.toBeInTheDocument();
     });
   }, uiTestTimeout);
 

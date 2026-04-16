@@ -1,6 +1,9 @@
 use cleanup_core::CleanupExecutionResult;
-use duplicates_core::{CachedHashes, DuplicateAnalysisFailure, HashCache, HashCacheKey};
+use duplicates_core::{
+    CachedHashes, DuplicateAnalysisFailure, HashCache, HashCacheKey, HashCacheWrite,
+};
 use scan_core::{CompletedScan, ScanHistoryEntry};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -174,6 +177,55 @@ impl HistoryStore {
         }
     }
 
+    fn load_hash_cache_entries(
+        &self,
+        keys: &[HashCacheKey],
+    ) -> Result<HashMap<HashCacheKey, CachedHashes>, HistoryStoreError> {
+        self.initialize()?;
+        if keys.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT partial_hash, full_hash
+                FROM duplicate_hash_cache
+                WHERE path = ?1 AND size_bytes = ?2 AND modified_at_millis = ?3;
+                "#,
+            )
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        let mut entries = HashMap::with_capacity(keys.len());
+
+        for key in keys {
+            let row = statement.query_row(
+                rusqlite::params![
+                    key.path,
+                    i64::try_from(key.size_bytes)
+                        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                    key.modified_at_millis
+                ],
+                |row| {
+                    Ok(CachedHashes {
+                        partial_hash: row.get(0)?,
+                        full_hash: row.get(1)?,
+                    })
+                },
+            );
+
+            match row {
+                Ok(entry) => {
+                    entries.insert(key.clone(), entry);
+                }
+                Err(rusqlite::Error::QueryReturnedNoRows) => {}
+                Err(error) => return Err(HistoryStoreError::Persistence(error.to_string())),
+            }
+        }
+
+        Ok(entries)
+    }
+
     pub fn save_cleanup_execution(
         &self,
         result: &CleanupExecutionResult,
@@ -244,31 +296,60 @@ impl HistoryStore {
         partial_hash: Option<&str>,
         full_hash: Option<&str>,
     ) -> Result<(), HistoryStoreError> {
+        self.save_hash_cache_entries(&[HashCacheWrite {
+            key: key.clone(),
+            partial_hash: partial_hash.map(str::to_string),
+            full_hash: full_hash.map(str::to_string),
+        }])
+    }
+
+    fn save_hash_cache_entries(
+        &self,
+        writes: &[HashCacheWrite],
+    ) -> Result<(), HistoryStoreError> {
         self.initialize()?;
-        let existing = self.load_hash_cache_entry(key)?;
-        let connection = self.open_connection()?;
-        connection
-            .execute(
+        if writes.is_empty() {
+            return Ok(());
+        }
+
+        let mut connection = self.open_connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        let mut statement = transaction
+            .prepare(
                 r#"
-                INSERT OR REPLACE INTO duplicate_hash_cache (
+                INSERT INTO duplicate_hash_cache (
                     path,
                     size_bytes,
                     modified_at_millis,
                     partial_hash,
                     full_hash
-                ) VALUES (?1, ?2, ?3, ?4, ?5);
+                ) VALUES (?1, ?2, ?3, ?4, ?5)
+                ON CONFLICT(path, size_bytes, modified_at_millis) DO UPDATE SET
+                    partial_hash = COALESCE(excluded.partial_hash, duplicate_hash_cache.partial_hash),
+                    full_hash = COALESCE(excluded.full_hash, duplicate_hash_cache.full_hash);
                 "#,
-                rusqlite::params![
-                    key.path,
-                    i64::try_from(key.size_bytes)
-                        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
-                    key.modified_at_millis,
-                    partial_hash.or(existing.as_ref().and_then(|entry| entry.partial_hash.as_deref())),
-                    full_hash.or(existing.as_ref().and_then(|entry| entry.full_hash.as_deref()))
-                ],
             )
             .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
 
+        for write in writes {
+            statement
+                .execute(rusqlite::params![
+                    write.key.path,
+                    i64::try_from(write.key.size_bytes)
+                        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                    write.key.modified_at_millis,
+                    write.partial_hash,
+                    write.full_hash
+                ])
+                .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        }
+
+        drop(statement);
+        transaction
+            .commit()
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
         Ok(())
     }
 }
@@ -289,6 +370,26 @@ impl HashCache for HistoryStore {
 
     fn save_full_hash(&self, key: &HashCacheKey, full_hash: &str) -> Result<(), DuplicateAnalysisFailure> {
         self.save_hash_cache_entry(key, None, Some(full_hash))
+            .map_err(|error| DuplicateAnalysisFailure::Internal {
+                message: error.to_string(),
+            })
+    }
+
+    fn get_cached_hashes_batch(
+        &self,
+        keys: &[HashCacheKey],
+    ) -> Result<HashMap<HashCacheKey, CachedHashes>, DuplicateAnalysisFailure> {
+        self.load_hash_cache_entries(keys)
+            .map_err(|error| DuplicateAnalysisFailure::Internal {
+                message: error.to_string(),
+            })
+    }
+
+    fn save_hashes_batch(
+        &self,
+        writes: &[HashCacheWrite],
+    ) -> Result<(), DuplicateAnalysisFailure> {
+        self.save_hash_cache_entries(writes)
             .map_err(|error| DuplicateAnalysisFailure::Internal {
                 message: error.to_string(),
             })
@@ -484,6 +585,71 @@ mod tests {
             .get_cached_hashes(&changed_key)
             .expect("changed lookup should succeed")
             .is_none());
+    }
+
+    #[test]
+    fn batch_duplicate_hash_cache_save_merges_partial_and_full_hashes() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::new(fixture.path().join("history.db"));
+        let key = HashCacheKey {
+            path: "C:\\scan-root\\dup.bin".to_string(),
+            size_bytes: 42,
+            modified_at_millis: 1234,
+        };
+
+        store
+            .save_hashes_batch(&[
+                HashCacheWrite {
+                    key: key.clone(),
+                    partial_hash: Some("partial-1".to_string()),
+                    full_hash: None,
+                },
+                HashCacheWrite {
+                    key: key.clone(),
+                    partial_hash: None,
+                    full_hash: Some("full-1".to_string()),
+                },
+            ])
+            .expect("batch hash save should persist");
+
+        let cached = store
+            .get_cached_hashes(&key)
+            .expect("cache lookup should succeed")
+            .expect("cache entry should exist");
+
+        assert_eq!(cached.partial_hash.as_deref(), Some("partial-1"));
+        assert_eq!(cached.full_hash.as_deref(), Some("full-1"));
+    }
+
+    #[test]
+    fn batch_duplicate_hash_cache_lookup_returns_only_requested_entries() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::new(fixture.path().join("history.db"));
+        let existing = HashCacheKey {
+            path: "C:\\scan-root\\dup.bin".to_string(),
+            size_bytes: 42,
+            modified_at_millis: 1234,
+        };
+        let missing = HashCacheKey {
+            path: "C:\\scan-root\\missing.bin".to_string(),
+            size_bytes: 84,
+            modified_at_millis: 5678,
+        };
+
+        store
+            .save_full_hash(&existing, "full-1")
+            .expect("full hash should persist");
+
+        let entries = store
+            .get_cached_hashes_batch(&[existing.clone(), missing.clone()])
+            .expect("batch lookup should succeed");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries.get(&existing).and_then(|entry| entry.full_hash.as_deref()),
+            Some("full-1")
+        );
+        assert!(!entries.contains_key(&missing));
     }
 
     #[test]

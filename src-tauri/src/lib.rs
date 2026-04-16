@@ -22,6 +22,7 @@ pub fn run() {
             commands::scan::cancel_active_scan,
             commands::scan::get_scan_status,
             commands::duplicates::start_duplicate_analysis,
+            commands::duplicates::cancel_duplicate_analysis,
             commands::duplicates::get_duplicate_analysis_status,
             commands::duplicates::open_duplicate_analysis,
             commands::cleanup::list_cleanup_rules,

@@ -225,6 +225,7 @@ function createCleanupClient(options?: {
     listScanHistory: vi.fn(async () => [makeHistoryEntry(scan.scanId)]),
     openScanHistory: vi.fn(async () => scan),
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: duplicateAnalysis.analysisId })),
+    cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () =>
       makeCompletedDuplicateStatus(scan.scanId, duplicateAnalysis.analysisId),
     ),
