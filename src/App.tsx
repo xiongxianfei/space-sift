@@ -1120,6 +1120,8 @@ function App({ client = unsupportedClient }: AppProps) {
                       <div className="duplicate-groups" role="list" aria-label="Duplicate groups">
                         {duplicateAnalysis.groups.map((group) => {
                           const keptPath = resolveKeptPath(group, duplicateKeepSelections);
+                          const newestPath = chooseMemberByAge(group.members, "newest");
+                          const oldestPath = chooseMemberByAge(group.members, "oldest");
 
                           return (
                             <article
@@ -1139,25 +1141,17 @@ function App({ client = unsupportedClient }: AppProps) {
                                 <div className="duplicate-actions">
                                   <button
                                     type="button"
-                                    className="secondary-button"
-                                    onClick={() =>
-                                      handleSelectKeepPath(
-                                        group,
-                                        chooseMemberByAge(group.members, "newest"),
-                                      )
-                                    }
+                                    className={`secondary-button ${keptPath === newestPath ? "is-active" : ""}`}
+                                    aria-pressed={keptPath === newestPath}
+                                    onClick={() => handleSelectKeepPath(group, newestPath)}
                                   >
                                     Keep newest
                                   </button>
                                   <button
                                     type="button"
-                                    className="secondary-button"
-                                    onClick={() =>
-                                      handleSelectKeepPath(
-                                        group,
-                                        chooseMemberByAge(group.members, "oldest"),
-                                      )
-                                    }
+                                    className={`secondary-button ${keptPath === oldestPath ? "is-active" : ""}`}
+                                    aria-pressed={keptPath === oldestPath}
+                                    onClick={() => handleSelectKeepPath(group, oldestPath)}
                                   >
                                     Keep oldest
                                   </button>
@@ -1182,21 +1176,15 @@ function App({ client = unsupportedClient }: AppProps) {
                                         <span>{formatBytes(member.sizeBytes)}</span>
                                       </div>
                                       <div className="duplicate-member-actions">
-                                        <span
-                                          className={`selection-pill ${isKept ? "is-kept" : "is-delete"}`}
+                                        <button
+                                          type="button"
+                                          className={`selection-pill selection-toggle ${isKept ? "is-kept" : "is-delete"}`}
+                                          aria-label={`${isKept ? "Kept copy" : "Delete candidate"} for ${label}`}
+                                          aria-pressed={isKept}
+                                          onClick={() => handleSelectKeepPath(group, member.path)}
                                         >
                                           {isKept ? "Kept copy" : "Delete candidate"}
-                                        </span>
-                                        {!isKept ? (
-                                          <button
-                                            type="button"
-                                            className="secondary-button"
-                                            aria-label={`Keep ${label}`}
-                                            onClick={() => handleSelectKeepPath(group, member.path)}
-                                          >
-                                            Keep copy
-                                          </button>
-                                        ) : null}
+                                        </button>
                                       </div>
                                     </article>
                                   );

@@ -548,14 +548,40 @@ select {
   letter-spacing: 0.03em;
 }
 
+.selection-toggle {
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.selection-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.selection-toggle:focus-visible {
+  outline: 2px solid rgba(216, 237, 255, 0.75);
+  outline-offset: 2px;
+}
+
 .selection-pill.is-kept {
   background: rgba(92, 167, 123, 0.18);
   color: #d6f1df;
 }
 
+.selection-toggle.is-kept {
+  border-color: rgba(92, 167, 123, 0.32);
+}
+
 .selection-pill.is-delete {
   background: rgba(243, 165, 78, 0.18);
   color: #ffd8a3;
+}
+
+.selection-toggle.is-delete {
+  border-color: rgba(243, 165, 78, 0.32);
 }
 
 .duplicate-issues ul {
