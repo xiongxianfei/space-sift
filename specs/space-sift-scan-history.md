@@ -12,8 +12,9 @@ scan, see progress while it runs, understand which paths were skipped, cancel
 an in-flight scan, and reopen completed scans from local history without
 rescanning immediately.
 
-Related plan:
+Related plans:
 - `docs/plans/2026-04-15-space-sift-win11-mvp.md`
+- `docs/plans/2026-04-16-fast-safe-scan-architecture.md`
 
 ## Examples
 
@@ -43,6 +44,13 @@ Given a user already completed a scan, when they open the history list and
 select that entry later, then the previously stored result loads from local
 SQLite data without requiring a new scan.
 
+### Example 5: scan a non-primary path class safely
+
+Given a user selects a removable drive, network share, or cloud-backed folder
+that is exposed as a normal filesystem path, when they start an ordinary scan,
+then the app keeps the same read-only scan flow and result contract even if it
+uses a safer fallback backend instead of the local fixed-volume optimized path.
+
 ## Inputs and outputs
 
 Inputs:
@@ -50,6 +58,12 @@ Inputs:
 - a user request to start scanning
 - an optional user request to cancel the active scan
 - a user request to open a completed scan from history
+
+Ordinary scan path classes considered by this contract:
+- local fixed-volume folders on Windows 11
+- removable storage paths exposed as normal filesystem paths
+- network-share paths exposed as normal filesystem paths
+- cloud-backed or sync-provider folders exposed as normal filesystem paths
 
 Outputs:
 - progress state for the active scan
@@ -120,6 +134,21 @@ duplicate groups, or cleanup recommendations yet.
 - R15: Scan history persistence MUST remain local-only for Milestone 2. The app
   MUST NOT require a network connection, cloud account, or remote API to run
   scans or reopen stored results.
+- R16: Ordinary space scans MUST remain metadata-first. They MUST NOT fully
+  read file contents, perform duplicate-confirmation hashing, or sample file
+  bodies as part of directory-size discovery.
+- R17: The ordinary scan flow MUST support local fixed-volume folders on
+  Windows 11. It SHOULD also support removable storage, network shares, and
+  cloud-backed or sync-provider folders when the OS exposes them as normal
+  filesystem paths.
+- R18: Local fixed-volume folders are the primary performance target for scan
+  optimization on Windows 11. The app MAY use a different backend strategy for
+  other path classes, but it MUST preserve the same result model, skipped-path
+  behavior, cancellation behavior, and read-only guarantees.
+- R19: If a supported non-primary path class cannot safely use an optimized
+  backend, the app MUST fall back to a safe supported scan path rather than
+  silently reading file contents, requiring elevation, or changing the result
+  contract.
 
 ## Invariants
 
@@ -128,6 +157,8 @@ duplicate groups, or cleanup recommendations yet.
   confirmation, or modify files.
 - The normal app UI remains unprivileged during scan and history flows.
 - A cancelled or failed scan is not treated as a completed reusable result.
+- Ordinary scan behavior stays separate from duplicate confirmation and any
+  file-content-reading workflow.
 
 ## Error handling and boundary behavior
 
@@ -142,6 +173,10 @@ duplicate groups, or cleanup recommendations yet.
   instead of pretending the scan was saved.
 - E5: Reopening a missing history entry by identifier MUST return a clean
   not-found style error rather than stale or placeholder data.
+- E6: If a supported path class cannot use an optimized backend safely, the app
+  MUST continue through a supported fallback path or fail cleanly at scan
+  start. It MUST NOT silently switch ordinary scanning into a content-reading
+  workflow.
 
 ## Compatibility and migration
 
@@ -150,6 +185,8 @@ duplicate groups, or cleanup recommendations yet.
   a future NTFS metadata fast path can produce the same result contract.
 - C3: Later milestones may extend the stored scan schema, but they SHOULD keep
   old history entries readable through additive migrations.
+- C4: Backend choice MAY vary by path class, but the ordinary scan contract
+  SHOULD stay stable across optimized and fallback paths.
 
 ## Observability expectations
 
@@ -162,6 +199,12 @@ duplicate groups, or cleanup recommendations yet.
 - O4: Milestone verification MUST include the targeted Rust tests for
   `scan-core` and `app-db`, plus focused frontend tests for scan and history
   interactions.
+- O5: Fast-safe scan verification MUST include evidence for both:
+  - a local fixed-volume scan path
+  - one non-primary fallback path class, or an explicit note that it was not
+    available on the maintainer machine
+- O6: Scan-engine tests for ordinary scans MUST verify that the scan path does
+  not invoke duplicate-style hashing or full file-content reads.
 
 ## Edge cases
 
@@ -175,6 +218,11 @@ duplicate groups, or cleanup recommendations yet.
   cleared or the app has been restarted.
 - Edge 7: A second scan request while one is already running is rejected
   clearly.
+- Edge 8: A removable, network, or cloud-backed path can still be scanned
+  through the normal read-only contract even if it does not use the optimized
+  local fixed-volume backend.
+- Edge 9: Ordinary scan behavior stays separate from duplicate analysis even
+  after future scan-performance optimizations are added.
 
 ## Non-goals
 
@@ -184,6 +232,8 @@ duplicate groups, or cleanup recommendations yet.
 - Privileged helper flows
 - Treemap rendering polish
 - NTFS direct MFT scanning in v1
+- Requiring every supported path class to use the same internal enumeration
+  backend
 
 ## Acceptance criteria
 
@@ -194,5 +244,11 @@ duplicate groups, or cleanup recommendations yet.
   completed history entry.
 - A reviewer can reopen a previously completed scan from local history without
   rescanning.
+- A reviewer can confirm that ordinary scan behavior remains metadata-first and
+  separate from duplicate hashing even as scan performance work changes the
+  backend.
+- A reviewer can confirm that local fixed-volume folders remain the primary
+  optimization target while an available non-primary path class still honors
+  the same read-only scan contract through a supported fallback path.
 - Automated tests cover the Milestone 2 scan contract, persistence contract,
   and the minimal UI flow for scanning and history.
