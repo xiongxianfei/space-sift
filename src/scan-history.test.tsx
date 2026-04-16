@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
@@ -160,8 +160,12 @@ describe("Space Sift scan and history flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /reopen scan scan-1/i }));
     expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-1");
 
+    const contentsTable = await screen.findByRole("table", {
+      name: /current folder contents/i,
+    });
+
     await waitFor(() => {
-      expect(screen.getByText(/big\.iso/i)).toBeInTheDocument();
+      expect(within(contentsTable).getByText(/big\.iso/i)).toBeInTheDocument();
       expect(screen.getAllByText(/4096 bytes/i).length).toBeGreaterThan(0);
     });
   });

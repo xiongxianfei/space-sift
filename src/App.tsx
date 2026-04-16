@@ -757,7 +757,7 @@ function App({ client = unsupportedClient }: AppProps) {
     browseableScan && resolvedExplorerPath
       ? listVisibleEntries(browseableScan, resolvedExplorerPath, explorerSortMode)
       : [];
-  const spaceMapTotal = visibleEntries.reduce((sum, entry) => sum + entry.sizeBytes, 0);
+  const currentLevelTotal = visibleEntries.reduce((sum, entry) => sum + entry.sizeBytes, 0);
   const duplicatePreview = duplicateAnalysis
     ? summarizeDuplicatePreview(duplicateAnalysis, duplicateKeepSelections)
     : { filesMarkedForDeletion: 0, reclaimableBytes: 0 };
@@ -897,8 +897,8 @@ function App({ client = unsupportedClient }: AppProps) {
                   <div>
                     <h3>Results explorer</h3>
                     <p className="explorer-note">
-                      The current folder view is read-only and reflects the stored scan result
-                      without rescanning.
+                      The current folder view is read-only, reflects the stored scan result
+                      without rescanning, and shows each row's share of the current level.
                     </p>
                   </div>
                   <div className="sort-controls" aria-label="Sort controls">
@@ -959,6 +959,7 @@ function App({ client = unsupportedClient }: AppProps) {
                         <th scope="col">Name</th>
                         <th scope="col">Type</th>
                         <th scope="col">Size</th>
+                        <th scope="col">Usage</th>
                         <th scope="col">Actions</th>
                       </tr>
                     </thead>
@@ -966,6 +967,14 @@ function App({ client = unsupportedClient }: AppProps) {
                       {visibleEntries.map((entry) => {
                         const label = getPathLabel(entry.path);
                         const showEntryLabel = !(duplicateAnalysis && entry.kind === "file");
+                        const widthPercent =
+                          currentLevelTotal === 0
+                            ? 0
+                            : Math.max((entry.sizeBytes / currentLevelTotal) * 100, 6);
+                        const sharePercent =
+                          currentLevelTotal === 0
+                            ? 0
+                            : Math.round((entry.sizeBytes / currentLevelTotal) * 100);
 
                         return (
                           <tr key={entry.path}>
@@ -974,6 +983,17 @@ function App({ client = unsupportedClient }: AppProps) {
                             </td>
                             <td className="entry-kind">{entry.kind}</td>
                             <td>{formatBytes(entry.sizeBytes)}</td>
+                            <td>
+                              <div className="usage-cell">
+                                <div className="usage-track" aria-hidden="true">
+                                  <div
+                                    className="usage-bar"
+                                    style={{ width: `${Math.min(widthPercent, 100)}%` }}
+                                  />
+                                </div>
+                                <span className="usage-label">{sharePercent}% of current level</span>
+                              </div>
+                            </td>
                             <td>
                               <div className="table-actions">
                                 {entry.kind === "directory" ? (
@@ -1001,50 +1021,6 @@ function App({ client = unsupportedClient }: AppProps) {
                       })}
                     </tbody>
                   </table>
-                )}
-              </section>
-
-              <section className="result-card explorer-card">
-                <div className="panel-header compact-header">
-                  <h3>Space map</h3>
-                  <p>Relative space usage for the immediate children of the current folder.</p>
-                </div>
-
-                {visibleEntries.length === 0 ? (
-                  <p className="empty-state">The current folder has no child items to visualize.</p>
-                ) : (
-                  <div className="space-map" aria-label="Space map">
-                    {visibleEntries.map((entry) => {
-                      const widthPercent =
-                        spaceMapTotal === 0
-                          ? 0
-                          : Math.max((entry.sizeBytes / spaceMapTotal) * 100, 6);
-                      const sharePercent =
-                        spaceMapTotal === 0
-                          ? 0
-                          : Math.round((entry.sizeBytes / spaceMapTotal) * 100);
-
-                      return (
-                        <div
-                          className="space-map-item"
-                          key={entry.path}
-                          aria-label={`${getPathLabel(entry.path)} ${formatBytes(entry.sizeBytes)}`}
-                          title={getPathLabel(entry.path)}
-                        >
-                          <div className="space-map-meta">
-                            <strong>{formatBytes(entry.sizeBytes)}</strong>
-                            <span>{sharePercent}% of current level</span>
-                          </div>
-                          <div className="space-map-track">
-                            <div
-                              className="space-map-bar"
-                              style={{ width: `${Math.min(widthPercent, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
                 )}
               </section>
             </div>
