@@ -25,6 +25,7 @@ Related plans:
 - `docs/plans/2026-04-15-space-sift-win11-mvp.md`
 - `docs/plans/2026-04-16-fast-safe-scan-architecture.md`
 - `docs/plans/2026-04-16-scan-progress-and-active-run-ux.md`
+- `docs/plans/2026-04-16-history-and-duplicate-review-clarity.md`
 
 ## Examples
 
@@ -54,13 +55,21 @@ Given a scan finishes successfully, when the history save succeeds, then the
 app loads the newly completed stored result and shows the completed-scan
 experience rather than leaving the user in the active-scan state.
 
-### Example 5: reopen a prior scan later
+### Example 5: narrow a long local history list
+
+Given the user has many completed scans stored locally and one of them is
+currently loaded, when they use history narrowing controls for root path or
+scan identifier, then the visible history list stays newest-first, keeps the
+currently loaded result visually distinct when it still matches, and narrows
+without rescanning or mutating stored history.
+
+### Example 6: reopen a prior scan later
 
 Given a user already completed a scan, when they open the history list and
 select that entry later, then the previously stored result loads from local
 SQLite data without requiring a new scan.
 
-### Example 6: scan a non-primary path class safely
+### Example 7: scan a non-primary path class safely
 
 Given a user selects a removable drive, network share, or cloud-backed folder
 that is exposed as a normal filesystem path, when they start an ordinary scan,
@@ -75,6 +84,8 @@ Inputs:
 - an optional user request to cancel the active scan
 - an optional previously loaded completed scan result
 - a user request to open a completed scan from history
+- optional user-entered text to narrow visible history entries by root path or
+  scan identifier
 
 Ordinary scan path classes considered by this contract:
 - local fixed-volume folders on Windows 11
@@ -88,6 +99,8 @@ Outputs:
 - a completed scan result model with aggregate totals and ranked items
 - a skipped-path list with explicit reasons
 - a locally persisted history entry for each completed scan
+- a newest-first local history view that can narrow visible entries by bounded
+  metadata fields and distinguish the currently loaded result when present
 
 ## Progress model
 
@@ -174,6 +187,15 @@ duplicate groups, or cleanup recommendations yet.
 - R15: The history list MUST show enough metadata to distinguish prior scans,
   including at least scan identifier, scanned root, completion time, and total
   bytes.
+- R15a: The visible history list MUST default to newest-first ordering by
+  completion time.
+- R15b: If the currently loaded completed result is present in the visible
+  history list, that entry MUST be visually distinguished from the other saved
+  scans.
+- R15c: History review MUST support local-only narrowing of the visible list by
+  at least:
+  - scanned root path text
+  - scan identifier text
 - R16: The user MUST be able to reopen a completed history entry and receive
   the same stored scan result model without rescanning.
 - R17: Starting a new scan while another scan is already running MUST NOT start
@@ -209,6 +231,8 @@ duplicate groups, or cleanup recommendations yet.
 - A cancelled or failed scan is not treated as a completed reusable result.
 - The active-scan experience and the completed-result experience remain
   distinct states, even if recent history stays visible elsewhere in the UI.
+- History narrowing affects only the current local view. It does not mutate the
+  stored scan data or reorder persisted history entries.
 
 ## Error handling and boundary behavior
 
@@ -230,6 +254,9 @@ duplicate groups, or cleanup recommendations yet.
   MUST continue through a supported fallback path or fail cleanly at scan
   start. It MUST NOT silently switch ordinary scanning into a content-reading
   workflow.
+- E8: If local history contains saved scans but the current history narrowing
+  controls match none of them, the UI MUST show an explicit no-match state
+  rather than the same message used for a genuinely empty history store.
 
 ## Compatibility and migration
 
@@ -255,6 +282,9 @@ duplicate groups, or cleanup recommendations yet.
 - O4: Frontend tests MUST cover the visible active-scan flow, including the
   dedicated running state, stale-result separation, cancellation, and reopening
   a stored scan result from history data.
+- O4a: Frontend tests MUST cover many-entry history review, including
+  newest-first ordering, current-result highlighting, and bounded history
+  narrowing by root path and scan identifier.
 - O5: Milestone verification MUST include the targeted Rust tests for
   `scan-core` and `app-db`, plus focused frontend tests for scan and history
   interactions.
@@ -263,20 +293,18 @@ duplicate groups, or cleanup recommendations yet.
   - one non-primary fallback path class, or an explicit note that it was not
     available on the maintainer machine
 - O7: Scan-engine tests for ordinary scans MUST verify that the scan path does
-  not invoke duplicate-style hashing or file-body reads.
+  not invoke duplicate-style hashing or full file-content reads.
 
 ## Edge cases
 
-- Edge 1: A folder with nested children still produces correct additive totals
-  and top-item rankings.
-- Edge 2: A scan with no files still produces a valid zero-byte result.
-- Edge 3: A permission-denied or otherwise skipped child path appears in the
-  skipped-path list instead of aborting the whole scan.
-- Edge 4: A reparse point that would loop is skipped rather than traversed.
-- Edge 5: Cancelling a scan before completion leaves no reusable completed
-  result in history.
-- Edge 6: A previously completed scan remains reopenable after the active scan
-  has been cleared or the app has been restarted.
+- Edge 1: Scanning an empty folder produces a zero-byte completed result.
+- Edge 2: Scanning a tree with nested folders aggregates child sizes into
+  parents correctly.
+- Edge 3: A permission-denied child path is reported in skipped entries.
+- Edge 4: A reparse point or symlink does not cause infinite recursion.
+- Edge 5: Cancelling a scan prevents a completed history save.
+- Edge 6: Reopening history works after the active in-memory result has been
+  cleared or the app has been restarted.
 - Edge 7: A second scan request while one is already running is rejected
   clearly.
 - Edge 8: Starting a new scan while an older completed result was loaded still
@@ -290,13 +318,18 @@ duplicate groups, or cleanup recommendations yet.
   local fixed-volume backend.
 - Edge 12: Ordinary scan behavior stays separate from duplicate analysis even
   after future scan-performance optimizations are added.
+- Edge 13: A long saved history list can be narrowed by root path or scan ID
+  without mutating the stored order or forcing a rescan.
+- Edge 14: The currently loaded result may be temporarily absent from the
+  visible history view if the active narrowing text does not match it.
 
 ## Non-goals
 
-- Treemap rendering
-- Duplicate analysis
-- Cleanup rule previews and delete execution
+- Duplicate detection or staged hashing
+- Cleanup preview generation
+- Recycle Bin execution
 - Privileged helper flows
+- Treemap rendering polish
 - NTFS direct MFT scanning in v1
 - Exact percent-complete or exact ETA claims for recursive scans whose total
   workload is unknown
@@ -319,6 +352,8 @@ duplicate groups, or cleanup recommendations yet.
   completed history entry.
 - A reviewer can reopen a previously completed scan from local history without
   rescanning.
+- A reviewer with many saved scans can identify the currently loaded result and
+  narrow history by root path or scan identifier without changing stored data.
 - A reviewer can confirm that ordinary scan behavior remains metadata-first and
   separate from duplicate hashing even as scan performance work changes the
   backend.

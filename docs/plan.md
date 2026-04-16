@@ -3,6 +3,11 @@
 This file tracks active, blocked, done, and superseded plans.
 
 ## Active
+- [2026-04-16-history-and-duplicate-review-clarity.md](plans/2026-04-16-history-and-duplicate-review-clarity.md)
+  - status: active
+  - scope: make saved-scan review and duplicate triage clearer by improving
+    history readability, active-result context, duplicate-group ordering, and
+    visible file-path context for same-name files
 - [2026-04-16-scan-progress-and-active-run-ux.md](plans/2026-04-16-scan-progress-and-active-run-ux.md)
   - status: active
   - scope: make large scans feel faster and clearer by improving scan telemetry,
