@@ -111,6 +111,12 @@ function makeBrowseableScan(scanId: string): BrowseableScanFixture {
         sizeBytes: 1024,
       },
       {
+        path: "C:\\Users\\xiongxianfei\\Downloads\\Games\\Empty",
+        parentPath: "C:\\Users\\xiongxianfei\\Downloads\\Games",
+        kind: "directory",
+        sizeBytes: 0,
+      },
+      {
         path: "C:\\Users\\xiongxianfei\\Downloads\\Games\\launcher.iso",
         parentPath: "C:\\Users\\xiongxianfei\\Downloads\\Games",
         kind: "file",
@@ -227,7 +233,7 @@ describe("Space Sift results explorer", () => {
     });
   }, uiTestTimeout);
 
-  it("sorts the current directory and renders a space map", async () => {
+  it("sorts the current directory and shows inline usage in the same table", async () => {
     render(<App client={createExplorerClient(makeBrowseableScan("scan-sort"))} />);
 
     const contentsTable = await screen.findByRole("table", {
@@ -237,15 +243,46 @@ describe("Space Sift results explorer", () => {
     fireEvent.click(screen.getByRole("button", { name: /sort by name/i }));
 
     await waitFor(() => {
+      expect(within(contentsTable).getByRole("columnheader", { name: /usage/i })).toBeInTheDocument();
       const rows = within(contentsTable).getAllByRole("row").slice(1);
       expect(rows[0]).toHaveTextContent(/archive/i);
       expect(rows[1]).toHaveTextContent(/games/i);
+      expect(rows[0]).toHaveTextContent(/31% of current level/i);
+      expect(rows[1]).toHaveTextContent(/62% of current level/i);
     });
 
-    expect(screen.getByLabelText(/space map/i)).toBeInTheDocument();
-    expect(screen.getByText(/archive/i)).toBeInTheDocument();
-    expect(screen.getByText(/games/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/space map/i)).not.toBeInTheDocument();
   }, uiTestTimeout);
+
+  it("shows an empty-state when the current folder has no immediate children", async () => {
+    render(<App client={createExplorerClient(makeBrowseableScan("scan-empty"))} />);
+
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /browse games/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /browse games/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /browse empty/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /browse empty/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/this folder has no immediate children in the stored scan result/i),
+      ).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByRole("table", { name: /current folder contents/i }),
+    ).not.toBeInTheDocument();
+  });
 
   it("requests Explorer handoff for the current path and surfaces missing-path errors", async () => {
     const client = createExplorerClient(makeBrowseableScan("scan-shell"));

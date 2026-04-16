@@ -13,7 +13,10 @@ This file tracks active, blocked, done, and superseded plans.
 - none yet
 
 ## Done
-- none yet
+- [2026-04-16-results-explorer-inline-usage.md](plans/2026-04-16-results-explorer-inline-usage.md)
+  - status: done
+  - scope: replaced the split results explorer + space-map layout with a
+    unified current-folder table that shows inline relative-usage cues
 
 ## Superseded
 - none yet

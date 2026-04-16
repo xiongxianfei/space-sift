@@ -290,7 +290,7 @@ select {
 }
 
 .explorer-grid {
-  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.85fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .results-columns {
@@ -405,6 +405,30 @@ select {
 
 .entry-kind {
   text-transform: capitalize;
+}
+
+.usage-cell {
+  display: grid;
+  gap: 8px;
+  min-width: 170px;
+}
+
+.usage-label {
+  color: #9cb4ca;
+  font-size: 0.9rem;
+}
+
+.usage-track {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.usage-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f3a54e, #5f9ad5);
 }
 
 .space-map {
@@ -717,5 +741,9 @@ select {
 
   .space-map-meta {
     flex-direction: column;
+  }
+
+  .usage-cell {
+    min-width: 0;
   }
 }
