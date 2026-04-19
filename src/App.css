@@ -280,6 +280,18 @@ select {
   gap: 14px;
 }
 
+.history-filters {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.history-filter-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
 .history-card p + p {
   margin-top: 4px;
 }
@@ -289,8 +301,33 @@ select {
   gap: 16px;
 }
 
+.active-scan-panel,
+.active-scan-grid,
+.active-scan-toolbar {
+  display: grid;
+  gap: 16px;
+}
+
+.active-scan-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.active-scan-toolbar {
+  align-items: start;
+}
+
+.active-scan-toolbar .action-row {
+  justify-content: flex-end;
+}
+
+.active-scan-path,
+.active-scan-meta {
+  margin-top: 8px;
+  color: #c4cddd;
+}
+
 .explorer-grid {
-  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.85fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .results-columns {
@@ -407,6 +444,30 @@ select {
   text-transform: capitalize;
 }
 
+.usage-cell {
+  display: grid;
+  gap: 8px;
+  min-width: 170px;
+}
+
+.usage-label {
+  color: #9cb4ca;
+  font-size: 0.9rem;
+}
+
+.usage-track {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.usage-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f3a54e, #5f9ad5);
+}
+
 .space-map {
   display: grid;
   gap: 14px;
@@ -418,9 +479,25 @@ select {
 }
 
 .space-map-meta {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 12px;
+}
+
+.space-map-label,
+.space-map-stats {
+  display: grid;
+  gap: 4px;
+}
+
+.space-map-label strong {
+  word-break: break-all;
+}
+
+.space-map-stats {
+  justify-items: end;
+  text-align: right;
 }
 
 .space-map-track {
@@ -485,6 +562,11 @@ select {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.duplicate-group-summary {
+  display: grid;
+  gap: 6px;
+}
+
 .duplicate-group-header h4,
 .duplicate-issues h4 {
   margin: 0;
@@ -530,6 +612,10 @@ select {
   word-break: break-all;
 }
 
+.duplicate-member-location {
+  color: #f3d7ae;
+}
+
 .duplicate-member-meta span {
   word-break: break-all;
 }
@@ -548,14 +634,95 @@ select {
   letter-spacing: 0.03em;
 }
 
+.selection-toggle {
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.selection-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.selection-toggle:focus-visible {
+  outline: 2px solid rgba(216, 237, 255, 0.75);
+  outline-offset: 2px;
+}
+
 .selection-pill.is-kept {
   background: rgba(92, 167, 123, 0.18);
   color: #d6f1df;
 }
 
+.selection-toggle.is-kept {
+  border-color: rgba(92, 167, 123, 0.32);
+}
+
 .selection-pill.is-delete {
   background: rgba(243, 165, 78, 0.18);
   color: #ffd8a3;
+}
+
+.selection-toggle.is-delete {
+  border-color: rgba(243, 165, 78, 0.32);
+}
+
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-entry {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.history-entry.is-loaded {
+  border-color: rgba(243, 165, 78, 0.35);
+  background:
+    linear-gradient(180deg, rgba(243, 165, 78, 0.1), rgba(255, 255, 255, 0.03)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.history-meta {
+  display: grid;
+  gap: 6px;
+}
+
+.history-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.history-title-row strong,
+.history-id {
+  word-break: break-all;
+}
+
+.history-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(243, 165, 78, 0.18);
+  color: #ffd8a3;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.history-entry .secondary-button {
+  justify-self: start;
 }
 
 .duplicate-issues ul {
@@ -645,11 +812,16 @@ select {
 
   .explorer-header,
   .explorer-toolbar,
+  .active-scan-toolbar,
   .duplicate-toolbar,
   .duplicate-group-header,
   .duplicate-member {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .duplicate-actions {
+    width: 100%;
   }
 
   .action-row {
@@ -690,6 +862,15 @@ select {
   }
 
   .space-map-meta {
-    flex-direction: column;
+    grid-template-columns: 1fr;
+  }
+
+  .space-map-stats {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .usage-cell {
+    min-width: 0;
   }
 }

@@ -9,6 +9,7 @@ export type DuplicateAnalysisState =
   | "idle"
   | "running"
   | "completed"
+  | "cancelled"
   | "failed";
 
 export type DuplicateAnalysisStage =
@@ -173,6 +174,9 @@ export type ScanStatusSnapshot = {
   filesDiscovered: number;
   directoriesDiscovered: number;
   bytesProcessed: number;
+  startedAt: string | null;
+  updatedAt: string | null;
+  currentPath: string | null;
   message: string | null;
   completedScanId: string | null;
 };

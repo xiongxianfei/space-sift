@@ -9,8 +9,9 @@
 `Space Sift` Milestone 3 turns the scan summary shell into a browseable results
 explorer. After a scan completes or a prior scan is reopened from history, the
 user must be able to navigate the scanned tree, sort visible items, move
-between folders with breadcrumbs, inspect a simple space map for the current
-level, and hand the current path or a selected item off to Windows Explorer.
+between folders with breadcrumbs, inspect current-level relative space usage
+inline with each visible row, and hand the current path or a selected item off
+to Windows Explorer.
 
 Milestone 3 builds on `specs/space-sift-scan-history.md`. It does not add
 duplicate detection or cleanup execution yet.
@@ -25,7 +26,8 @@ Related plan:
 Given a completed scan contains `C:\Users\xiongxianfei\Downloads\Games`, when
 the user clicks that directory row from the root results table, then the
 results view switches to that directory, the breadcrumb trail updates, and the
-table plus space map show only that directory's immediate children.
+table shows only that directory's immediate children plus their current-level
+relative usage.
 
 ### Example 2: sort visible entries
 
@@ -66,7 +68,7 @@ Outputs:
 - a current explorer location within the scanned tree
 - a sorted list of the immediate children beneath that location
 - breadcrumb navigation for the current location
-- a simple proportional space map for the current location
+- a relative-usage cue for each visible row in the current location
 - a request to Windows Explorer for the chosen path
 
 ## Additive result model extension
@@ -107,24 +109,25 @@ new scan.
   - total files
   - total directories
   - completion time
-- R9: The UI MUST show a space map for the current browsed directory using the
-  visible child data from the stored scan result. The space map does not need
-  to be a full treemap in Milestone 3, but it MUST visualize relative space
-  usage for the current level.
-- R10: The UI MUST offer a Windows Explorer handoff action for:
+- R9: The results table MUST show a relative-usage visualization for each
+  visible row using the current browsed directory's child data from the stored
+  scan result.
+- R10: The relative-usage visualization MUST make row-to-row comparison
+  possible without requiring a second panel or separate item list.
+- R11: The UI MUST offer a Windows Explorer handoff action for:
   - the current browsed path
   - at least one selected row from the current table
-- R11: The Windows Explorer handoff MUST stay available without requiring the
+- R12: The Windows Explorer handoff MUST stay available without requiring the
   whole app to run as administrator.
-- R12: Reopening a completed scan from local history MUST restore the explorer
+- R13: Reopening a completed scan from local history MUST restore the explorer
   at the scan root with the same browseable data as a fresh completion when the
   stored result includes the additive tree model.
-- R13: If a reopened history entry lacks the browseable tree model, the app
+- R14: If a reopened history entry lacks the browseable tree model, the app
   MUST show the saved summary data, MUST NOT crash, and MUST clearly explain
   that folder drill-down is unavailable for that older entry.
-- R14: History browsing and result navigation MUST remain local-only and MUST
+- R15: History browsing and result navigation MUST remain local-only and MUST
   NOT require network access or cloud synchronization.
-- R15: Browsing, sorting, and Explorer handoff in Milestone 3 MUST remain
+- R16: Browsing, sorting, and Explorer handoff in Milestone 3 MUST remain
   read-only with respect to the scanned files. These actions MUST NOT move,
   rename, or delete content.
 
@@ -173,12 +176,15 @@ new scan.
 - Edge 4: Sorting by size and then navigating deeper still shows only the new
   current directory's immediate children.
 - Edge 5: Explorer handoff for a missing path returns a visible error.
+- Edge 6: Long file names still remain readable enough to identify the row when
+  the inline usage cue is present.
 
 ## Non-goals
 
 - Duplicate detection
 - Cleanup preview or execution
 - Privileged helper flows
+- A separate side-panel space map
 - Full treemap geometry optimization
 - Search or filter across the whole scan tree
 
@@ -188,6 +194,8 @@ new scan.
   using row clicks and breadcrumbs.
 - A reviewer can sort the visible results by size and name and see the table
   update deterministically.
+- A reviewer can compare relative space usage directly from the same row as the
+  file or folder label without cross-referencing a second panel.
 - A reviewer can use a Windows Explorer handoff action for the current path or
   a selected row.
 - A reviewer reopening an older summary-only history entry sees a clear rescan

@@ -20,6 +20,9 @@ function createIdleClient(): SpaceSiftClient {
         filesDiscovered: 0,
         directoriesDiscovered: 0,
         bytesProcessed: 0,
+        startedAt: null,
+        updatedAt: null,
+        currentPath: null,
         message: null,
         completedScanId: null,
       };
@@ -31,6 +34,9 @@ function createIdleClient(): SpaceSiftClient {
       throw new Error("no saved scans");
     },
     async startDuplicateAnalysis() {
+      throw new Error("no duplicate analysis");
+    },
+    async cancelDuplicateAnalysis() {
       throw new Error("no duplicate analysis");
     },
     async getDuplicateAnalysisStatus() {

@@ -8,11 +8,13 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let history_path =
-                history_db_path(&app.handle()).map_err(std::io::Error::other)?;
+            let history_path = history_db_path(&app.handle()).map_err(std::io::Error::other)?;
             let history_store = app_db::HistoryStore::new(history_path);
             history_store
                 .initialize()
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            history_store
+                .reconcile_scan_runs()
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
             app.manage(AppState::new(history_store));
             Ok(())
@@ -22,6 +24,7 @@ pub fn run() {
             commands::scan::cancel_active_scan,
             commands::scan::get_scan_status,
             commands::duplicates::start_duplicate_analysis,
+            commands::duplicates::cancel_duplicate_analysis,
             commands::duplicates::get_duplicate_analysis_status,
             commands::duplicates::open_duplicate_analysis,
             commands::cleanup::list_cleanup_rules,
@@ -29,6 +32,8 @@ pub fn run() {
             commands::cleanup::execute_cleanup,
             commands::history::list_scan_history,
             commands::history::open_scan_history,
+            commands::history::list_scan_runs,
+            commands::history::open_scan_run,
             commands::privileged::get_privileged_cleanup_capability,
             commands::shell::open_path_in_explorer
         ])

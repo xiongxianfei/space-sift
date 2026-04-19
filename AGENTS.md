@@ -9,11 +9,12 @@ Optimize for correctness, explicitness, small reviewable diffs, and alignment wi
 When instructions conflict, follow this order:
 
 1. Direct user request
-2. Approved feature spec in `specs/`
-3. Matching test spec in `specs/`
-4. Active execution plan file in `docs/plans/`
-5. `docs/workflows.md`
-6. This file
+2. `.codex/CONSTITUTION.md`
+3. Approved feature spec in `specs/`
+4. Matching test spec in `specs/`
+5. Active execution plan file in `docs/plans/`
+6. `docs/workflows.md`
+7. This file
 
 Do not silently blend conflicting higher-priority instructions. Call out the conflict, explain the impact, and follow the highest-priority source that already implies the answer.
 

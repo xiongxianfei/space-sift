@@ -33,6 +33,9 @@ export const tauriSpaceSiftClient: SpaceSiftClient = {
   async startDuplicateAnalysis(scanId) {
     return invoke<{ analysisId: string }>("start_duplicate_analysis", { scanId });
   },
+  async cancelDuplicateAnalysis() {
+    await invoke("cancel_duplicate_analysis");
+  },
   async getDuplicateAnalysisStatus() {
     return invoke<DuplicateStatusSnapshot>("get_duplicate_analysis_status");
   },

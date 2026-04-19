@@ -45,9 +45,13 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 app-db = { path = "crates/app-db" }
 cleanup-core = { path = "crates/cleanup-core" }
+chrono = { workspace = true }
 duplicates-core = { path = "crates/duplicates-core" }
 elevation-helper = { path = "crates/elevation-helper" }
 scan-core = { path = "crates/scan-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tauri = { version = "2", features = [] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
