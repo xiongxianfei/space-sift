@@ -23,9 +23,20 @@ pub struct HistoryStore {
 const DEFAULT_SCAN_RUN_PREVIEW_PAGE_SIZE: u32 = 20;
 const HEARTBEAT_STALE_AFTER_SECONDS: i64 = 120;
 const ABANDON_AFTER_SECONDS: i64 = 24 * 60 * 60;
+const RUN_RETENTION_DAYS: i64 = 30;
 const RECONCILE_EVENT_TYPE: &str = "reconciled";
+const CANCEL_EVENT_TYPE: &str = "cancelled";
+const PURGE_EVENT_TYPE: &str = "purged";
 const REASON_HEARTBEAT_STALE: &str = "HEARTBEAT_STALE";
 const REASON_RUN_ABANDONED: &str = "RUN_ABANDONED";
+const REASON_USER_CANCELLED: &str = "USER_CANCELLED";
+const REASON_RETENTION_EXPIRED: &str = "RETENTION_EXPIRED";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PurgedScanRuns {
+    pub purged_count: usize,
+    pub deleted_run_ids: Vec<String>,
+}
 
 impl HistoryStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
@@ -687,6 +698,150 @@ impl HistoryStore {
         Ok(())
     }
 
+    pub fn cancel_non_live_scan_run(
+        &self,
+        run_id: &str,
+    ) -> Result<ScanRunDetail, HistoryStoreError> {
+        self.initialize()?;
+        let now = self.now_timestamp();
+        let mut connection = self.open_connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        let previous = load_latest_scan_run_snapshot_in_transaction(&transaction, run_id)?;
+
+        match previous.status {
+            ScanRunStatus::Stale | ScanRunStatus::Abandoned => {}
+            status => {
+                return Err(HistoryStoreError::Conflict {
+                    run_id: run_id.to_string(),
+                    status: scan_run_status_label(&status).to_string(),
+                })
+            }
+        }
+
+        append_cancelled_snapshot(&transaction, run_id, &now, &previous)?;
+        transaction
+            .commit()
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+        self.open_scan_run(run_id)
+    }
+
+    pub fn purge_expired_scan_runs(&self) -> Result<PurgedScanRuns, HistoryStoreError> {
+        self.initialize()?;
+        let now = self.now_timestamp();
+        let cutoff = retention_cutoff_timestamp(&now, RUN_RETENTION_DAYS)?;
+        let mut connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT run_id, terminal_at
+                FROM scan_runs
+                WHERE status IN ('completed', 'cancelled', 'failed', 'abandoned')
+                  AND terminal_at IS NOT NULL
+                  AND terminal_at <= ?1
+                ORDER BY terminal_at ASC;
+                "#,
+            )
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        let candidates = statement
+            .query_map(rusqlite::params![cutoff], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        drop(statement);
+
+        let mut purgeable = Vec::with_capacity(candidates.len());
+        for (run_id, terminal_at) in candidates {
+            let header = load_scan_run_header(&connection, &run_id)?;
+            let (_, can_resume) = scan_run_resume_flags(&header, &now);
+            if can_resume {
+                continue;
+            }
+
+            purgeable.push((run_id, terminal_at));
+        }
+
+        if purgeable.is_empty() {
+            return Ok(PurgedScanRuns {
+                purged_count: 0,
+                deleted_run_ids: Vec::new(),
+            });
+        }
+
+        let transaction = connection
+            .transaction()
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+        let mut deleted_run_ids = Vec::with_capacity(purgeable.len());
+
+        for (run_id, terminal_at) in &purgeable {
+            preserve_purged_run_audit_rows(&transaction, run_id)?;
+            let deleted = transaction
+                .execute(
+                    "DELETE FROM scan_runs WHERE run_id = ?1;",
+                    rusqlite::params![run_id],
+                )
+                .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+            if deleted != 1 {
+                return Err(HistoryStoreError::Persistence(format!(
+                    "purge deleted {deleted} rows for {run_id}"
+                )));
+            }
+
+            let remaining = transaction
+                .query_row(
+                    "SELECT COUNT(*) FROM scan_runs WHERE run_id = ?1;",
+                    rusqlite::params![run_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+            if remaining != 0 {
+                return Err(HistoryStoreError::Persistence(format!(
+                    "purge verification failed for {run_id}"
+                )));
+            }
+
+            let event_json = serde_json::to_string(&serde_json::json!({
+                "runId": run_id,
+                "terminalAt": terminal_at,
+                "purgedAt": now,
+            }))
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+            transaction
+                .execute(
+                    r#"
+                    INSERT INTO scan_run_audit (
+                        run_id,
+                        event_type,
+                        reason_code,
+                        created_at,
+                        event_json
+                    ) VALUES (NULL, ?1, ?2, ?3, ?4);
+                    "#,
+                    rusqlite::params![
+                        PURGE_EVENT_TYPE,
+                        REASON_RETENTION_EXPIRED,
+                        now,
+                        event_json
+                    ],
+                )
+                .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+            deleted_run_ids.push(run_id.clone());
+        }
+
+        transaction
+            .commit()
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+        Ok(PurgedScanRuns {
+            purged_count: deleted_run_ids.len(),
+            deleted_run_ids,
+        })
+    }
+
     fn open_connection(&self) -> Result<rusqlite::Connection, HistoryStoreError> {
         let connection = rusqlite::Connection::open(&self.db_path)
             .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
@@ -953,6 +1108,8 @@ impl HashCache for HistoryStore {
 pub enum HistoryStoreError {
     #[error("history entry not found: {scan_id}")]
     NotFound { scan_id: String },
+    #[error("scan run conflict for {run_id}: status {status}")]
+    Conflict { run_id: String, status: String },
     #[error(
         "scan run snapshot sequence mismatch for {run_id}: expected {expected}, got {actual}"
     )]
@@ -1672,6 +1829,222 @@ fn append_reconciliation_snapshot(
     Ok(())
 }
 
+fn append_cancelled_snapshot(
+    transaction: &rusqlite::Transaction<'_>,
+    run_id: &str,
+    snapshot_at: &str,
+    previous: &ScanRunSnapshot,
+) -> Result<(), HistoryStoreError> {
+    let current_last_progress_at =
+        load_scan_run_last_progress_at_in_transaction(transaction, run_id)?;
+    let snapshot = ScanRunSnapshot {
+        run_id: run_id.to_string(),
+        seq: previous.seq.saturating_add(1),
+        snapshot_at: snapshot_at.to_string(),
+        created_at: snapshot_at.to_string(),
+        status: ScanRunStatus::Cancelled,
+        files_discovered: previous.files_discovered,
+        directories_discovered: previous.directories_discovered,
+        items_discovered: previous.items_discovered,
+        items_scanned: previous.items_scanned,
+        errors_count: previous.errors_count,
+        bytes_processed: previous.bytes_processed,
+        scan_rate_items_per_sec: 0.0,
+        progress_percent: previous.progress_percent,
+        current_path: previous.current_path.clone(),
+        message: Some("Run cancelled by user.".to_string()),
+    };
+
+    transaction
+        .execute(
+            r#"
+            INSERT INTO scan_run_snapshots (
+                run_id,
+                seq,
+                snapshot_at,
+                created_at,
+                status,
+                files_discovered,
+                directories_discovered,
+                items_discovered,
+                items_scanned,
+                errors_count,
+                bytes_processed,
+                scan_rate_items_per_sec,
+                progress_percent,
+                current_path,
+                message
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15);
+            "#,
+            rusqlite::params![
+                snapshot.run_id,
+                i64::try_from(snapshot.seq)
+                    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                snapshot.snapshot_at,
+                snapshot.created_at,
+                scan_run_status_label(&snapshot.status),
+                i64::try_from(snapshot.files_discovered)
+                    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                i64::try_from(snapshot.directories_discovered)
+                    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                i64::try_from(snapshot.items_discovered)
+                    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                i64::try_from(snapshot.items_scanned)
+                    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                i64::try_from(snapshot.errors_count)
+                    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                i64::try_from(snapshot.bytes_processed)
+                    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                snapshot.scan_rate_items_per_sec,
+                snapshot.progress_percent,
+                snapshot.current_path,
+                snapshot.message
+            ],
+        )
+        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+    transaction
+        .execute(
+            r#"
+            UPDATE scan_runs
+            SET status = ?2,
+                last_snapshot_at = ?3,
+                last_progress_at = ?4,
+                stale_since = ?5,
+                terminal_at = ?6,
+                error_code = NULL,
+                error_message = NULL,
+                updated_at = ?7,
+                latest_seq = ?8
+            WHERE run_id = ?1;
+            "#,
+            rusqlite::params![
+                run_id,
+                scan_run_status_label(&snapshot.status),
+                snapshot.snapshot_at,
+                current_last_progress_at,
+                next_stale_since(transaction, &snapshot)?,
+                terminal_finished_at(&snapshot),
+                snapshot.created_at,
+                i64::try_from(snapshot.seq)
+                    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?
+            ],
+        )
+        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+    let event_json = serde_json::to_string(&serde_json::json!({
+        "fromStatus": scan_run_status_label(&previous.status),
+        "toStatus": scan_run_status_label(&snapshot.status),
+        "snapshotAt": snapshot.snapshot_at,
+    }))
+    .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+    transaction
+        .execute(
+            r#"
+            INSERT INTO scan_run_audit (
+                run_id,
+                event_type,
+                reason_code,
+                created_at,
+                event_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5);
+            "#,
+            rusqlite::params![
+                run_id,
+                CANCEL_EVENT_TYPE,
+                REASON_USER_CANCELLED,
+                snapshot.created_at,
+                event_json
+            ],
+        )
+        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+    Ok(())
+}
+
+fn preserve_purged_run_audit_rows(
+    transaction: &rusqlite::Transaction<'_>,
+    run_id: &str,
+) -> Result<(), HistoryStoreError> {
+    let mut statement = transaction
+        .prepare(
+            r#"
+            SELECT event_type, reason_code, created_at, event_json
+            FROM scan_run_audit
+            WHERE run_id = ?1
+            ORDER BY event_id ASC;
+            "#,
+        )
+        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+    let audit_rows = statement
+        .query_map(rusqlite::params![run_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+    drop(statement);
+
+    for (event_type, reason_code, created_at, event_json) in audit_rows {
+        transaction
+            .execute(
+                r#"
+                INSERT INTO scan_run_audit (
+                    run_id,
+                    event_type,
+                    reason_code,
+                    created_at,
+                    event_json
+                ) VALUES (NULL, ?1, ?2, ?3, ?4);
+                "#,
+                rusqlite::params![
+                    event_type,
+                    reason_code,
+                    created_at,
+                    preserved_purge_audit_event_json(run_id, &event_json)?
+                ],
+            )
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+    }
+
+    Ok(())
+}
+
+fn preserved_purge_audit_event_json(
+    run_id: &str,
+    event_json: &str,
+) -> Result<String, HistoryStoreError> {
+    let parsed = serde_json::from_str::<serde_json::Value>(event_json)
+        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+    let preserved = match parsed {
+        serde_json::Value::Object(mut object) => {
+            object.insert(
+                "runId".to_string(),
+                serde_json::Value::String(run_id.to_string()),
+            );
+            object.insert(
+                "preservedAfterPurge".to_string(),
+                serde_json::Value::Bool(true),
+            );
+            serde_json::Value::Object(object)
+        }
+        other => serde_json::json!({
+            "runId": run_id,
+            "preservedAfterPurge": true,
+            "originalEvent": other,
+        }),
+    };
+
+    serde_json::to_string(&preserved)
+        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))
+}
+
 fn elapsed_seconds(from: &str, to: &str) -> Option<i64> {
     let from = parse_timestamp(from)?;
     let to = parse_timestamp(to)?;
@@ -1682,6 +2055,18 @@ fn parse_timestamp(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .ok()
         .map(|value| value.with_timezone(&Utc))
+}
+
+fn retention_cutoff_timestamp(
+    now: &str,
+    retention_days: i64,
+) -> Result<String, HistoryStoreError> {
+    let now = parse_timestamp(now).ok_or_else(|| {
+        HistoryStoreError::Persistence(format!("invalid retention clock timestamp: {now}"))
+    })?;
+    Ok((now - chrono::Duration::days(retention_days))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string())
 }
 
 #[cfg(test)]
@@ -1785,6 +2170,26 @@ mod tests {
             .expect("audit query");
         statement
             .query_map(rusqlite::params![run_id], |row| row.get::<_, String>(0))
+            .expect("audit rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("audit values")
+    }
+
+    fn load_audit_events_without_run_id(store: &HistoryStore, event_type: &str) -> Vec<String> {
+        let connection =
+            rusqlite::Connection::open(store.db_path()).expect("history database should open");
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT reason_code
+                FROM scan_run_audit
+                WHERE run_id IS NULL AND event_type = ?1
+                ORDER BY event_id ASC;
+                "#,
+            )
+            .expect("audit query");
+        statement
+            .query_map(rusqlite::params![event_type], |row| row.get::<_, String>(0))
             .expect("audit rows")
             .collect::<Result<Vec<_>, _>>()
             .expect("audit values")
@@ -2456,6 +2861,331 @@ mod tests {
         assert_eq!(
             load_audit_reason_codes(&store, "run-1"),
             vec![REASON_RUN_ABANDONED.to_string()]
+        );
+    }
+
+    #[test]
+    fn scan_run_purge_removes_old_terminal_runs_and_verifies_deletion() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&[
+                "2026-03-01T10:00:01Z",
+                "2026-03-01T10:00:02Z",
+                "2026-04-19T10:00:00Z",
+            ]),
+        );
+
+        store
+            .record_scan_run_started(
+                "run-1",
+                "C:\\scan-root",
+                "2026-03-01T10:00:00Z",
+                Some("C:\\scan-root"),
+            )
+            .expect("scan run should persist");
+        store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "run-1".to_string(),
+                seq: 2,
+                snapshot_at: "2026-03-01T10:00:01Z".to_string(),
+                created_at: "2026-03-01T10:00:02Z".to_string(),
+                status: ScanRunStatus::Failed,
+                files_discovered: 0,
+                directories_discovered: 0,
+                items_discovered: 0,
+                items_scanned: 0,
+                errors_count: 1,
+                bytes_processed: 0,
+                scan_rate_items_per_sec: 0.0,
+                progress_percent: None,
+                current_path: Some("C:\\scan-root".to_string()),
+                message: Some("walk failed".to_string()),
+            })
+            .expect("terminal snapshot should append");
+
+        let purged = store
+            .purge_expired_scan_runs()
+            .expect("purge should succeed");
+
+        assert_eq!(purged.purged_count, 1);
+        assert_eq!(purged.deleted_run_ids, vec!["run-1".to_string()]);
+        assert_eq!(
+            store.open_scan_run("run-1").expect_err("run should be deleted"),
+            HistoryStoreError::NotFound {
+                scan_id: "run-1".to_string(),
+            }
+        );
+        assert_eq!(
+            load_audit_events_without_run_id(&store, PURGE_EVENT_TYPE),
+            vec![REASON_RETENTION_EXPIRED.to_string()]
+        );
+    }
+
+    #[test]
+    fn scan_run_purge_preserves_recoverable_and_recent_runs() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&[
+                "2026-04-01T10:00:01Z",
+                "2026-04-01T10:00:02Z",
+                "2026-04-19T10:00:01Z",
+                "2026-04-19T10:00:02Z",
+                "2026-04-19T10:00:03Z",
+            ]),
+        );
+
+        store
+            .record_scan_run_started(
+                "stale-run",
+                "C:\\scan-root",
+                "2026-04-01T10:00:00Z",
+                Some("C:\\scan-root"),
+            )
+            .expect("stale run should persist");
+        store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "stale-run".to_string(),
+                seq: 2,
+                snapshot_at: "2026-04-01T10:00:01Z".to_string(),
+                created_at: "2026-04-01T10:00:02Z".to_string(),
+                status: ScanRunStatus::Stale,
+                files_discovered: 0,
+                directories_discovered: 0,
+                items_discovered: 0,
+                items_scanned: 0,
+                errors_count: 0,
+                bytes_processed: 0,
+                scan_rate_items_per_sec: 0.0,
+                progress_percent: None,
+                current_path: Some("C:\\scan-root".to_string()),
+                message: Some("Run marked stale during startup reconciliation.".to_string()),
+            })
+            .expect("stale snapshot should append");
+        store
+            .record_scan_run_started(
+                "recent-terminal",
+                "C:\\recent-root",
+                "2026-04-19T10:00:00Z",
+                Some("C:\\recent-root"),
+            )
+            .expect("recent run should persist");
+        store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "recent-terminal".to_string(),
+                seq: 2,
+                snapshot_at: "2026-04-19T10:00:01Z".to_string(),
+                created_at: "2026-04-19T10:00:02Z".to_string(),
+                status: ScanRunStatus::Failed,
+                files_discovered: 0,
+                directories_discovered: 0,
+                items_discovered: 0,
+                items_scanned: 0,
+                errors_count: 1,
+                bytes_processed: 0,
+                scan_rate_items_per_sec: 0.0,
+                progress_percent: None,
+                current_path: Some("C:\\recent-root".to_string()),
+                message: Some("walk failed".to_string()),
+            })
+            .expect("recent terminal snapshot should append");
+
+        let purged = store
+            .purge_expired_scan_runs()
+            .expect("purge should succeed");
+
+        assert_eq!(purged.purged_count, 0);
+        assert!(store.open_scan_run("stale-run").is_ok());
+        assert!(store.open_scan_run("recent-terminal").is_ok());
+    }
+
+    #[test]
+    fn scan_run_purge_preserves_completed_history_payloads() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&[
+                "2026-03-01T10:00:01Z",
+                "2026-04-19T10:00:00Z",
+            ]),
+        );
+        let completed = sample_completed_scan();
+
+        store
+            .record_scan_run_started(
+                &completed.scan_id,
+                &completed.root_path,
+                "2026-03-01T09:59:00Z",
+                Some(&completed.root_path),
+            )
+            .expect("scan run should persist");
+        store
+            .finalize_completed_scan_run(
+                &CompletedScan {
+                    started_at: "2026-03-01T09:59:00Z".to_string(),
+                    completed_at: "2026-03-01T10:00:00Z".to_string(),
+                    ..completed.clone()
+                },
+                Some("C:\\scan-root"),
+                Some("Scan complete."),
+            )
+            .expect("completion should persist");
+
+        let purged = store
+            .purge_expired_scan_runs()
+            .expect("purge should succeed");
+
+        assert_eq!(purged.purged_count, 1);
+        let reopened = store
+            .open_history_entry(&completed.scan_id)
+            .expect("completed history payload should remain");
+        assert_eq!(reopened.scan_id, completed.scan_id);
+    }
+
+    #[test]
+    fn scan_run_purge_preserves_resume_eligible_abandoned_runs() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&[
+                "2026-03-01T10:00:01Z",
+                "2026-04-19T10:00:00Z",
+            ]),
+        );
+
+        store
+            .record_scan_run_started(
+                "resume-run",
+                "C:\\scan-root",
+                "2026-03-01T10:00:00Z",
+                Some("C:\\scan-root"),
+            )
+            .expect("scan run should persist");
+        store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "resume-run".to_string(),
+                seq: 2,
+                snapshot_at: "2026-03-01T10:00:00Z".to_string(),
+                created_at: "2026-03-01T10:00:01Z".to_string(),
+                status: ScanRunStatus::Abandoned,
+                files_discovered: 0,
+                directories_discovered: 0,
+                items_discovered: 0,
+                items_scanned: 0,
+                errors_count: 0,
+                bytes_processed: 0,
+                scan_rate_items_per_sec: 0.0,
+                progress_percent: None,
+                current_path: Some("C:\\scan-root".to_string()),
+                message: Some("Run marked abandoned during startup reconciliation.".to_string()),
+            })
+            .expect("abandoned snapshot should append");
+
+        let connection =
+            rusqlite::Connection::open(store.db_path()).expect("history database should open");
+        connection
+            .execute(
+                r#"
+                UPDATE scan_runs
+                SET resume_enabled = 1,
+                    resume_token = 'resume-token',
+                    resume_expires_at = '2026-05-01T00:00:00Z'
+                WHERE run_id = 'resume-run';
+                "#,
+                [],
+            )
+            .expect("resume metadata should persist");
+
+        let before = store
+            .open_scan_run("resume-run")
+            .expect("resume-eligible run should reopen");
+        assert!(before.can_resume);
+
+        let purged = store
+            .purge_expired_scan_runs()
+            .expect("purge should succeed");
+
+        assert_eq!(purged.purged_count, 0);
+        let after = store
+            .open_scan_run("resume-run")
+            .expect("resume-eligible abandoned run should remain");
+        assert!(after.can_resume);
+    }
+
+    #[test]
+    fn scan_run_purge_preserves_prior_audit_evidence() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&[
+                "2026-03-01T10:00:01Z",
+                "2026-04-19T10:00:00Z",
+            ]),
+        );
+
+        store
+            .record_scan_run_started(
+                "run-1",
+                "C:\\scan-root",
+                "2026-03-01T10:00:00Z",
+                Some("C:\\scan-root"),
+            )
+            .expect("scan run should persist");
+        store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "run-1".to_string(),
+                seq: 2,
+                snapshot_at: "2026-03-01T10:00:00Z".to_string(),
+                created_at: "2026-03-01T10:00:01Z".to_string(),
+                status: ScanRunStatus::Failed,
+                files_discovered: 0,
+                directories_discovered: 0,
+                items_discovered: 0,
+                items_scanned: 0,
+                errors_count: 1,
+                bytes_processed: 64,
+                scan_rate_items_per_sec: 0.0,
+                progress_percent: None,
+                current_path: Some("C:\\scan-root".to_string()),
+                message: Some("walk failed".to_string()),
+            })
+            .expect("terminal snapshot should append");
+        let connection =
+            rusqlite::Connection::open(store.db_path()).expect("history database should open");
+        connection
+            .execute(
+                r#"
+                INSERT INTO scan_run_audit (
+                    run_id,
+                    event_type,
+                    reason_code,
+                    created_at,
+                    event_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5);
+                "#,
+                rusqlite::params![
+                    "run-1",
+                    CANCEL_EVENT_TYPE,
+                    REASON_USER_CANCELLED,
+                    "2026-03-01T10:00:01Z",
+                    r#"{"fromStatus":"stale","toStatus":"cancelled","snapshotAt":"2026-03-01T10:00:01Z"}"#
+                ],
+            )
+            .expect("audit row should persist");
+
+        let purged = store
+            .purge_expired_scan_runs()
+            .expect("purge should succeed");
+
+        assert_eq!(purged.purged_count, 1);
+        assert_eq!(
+            load_audit_events_without_run_id(&store, CANCEL_EVENT_TYPE),
+            vec![REASON_USER_CANCELLED.to_string()]
+        );
+        assert_eq!(
+            load_audit_events_without_run_id(&store, PURGE_EVENT_TYPE),
+            vec![REASON_RETENTION_EXPIRED.to_string()]
         );
     }
 

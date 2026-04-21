@@ -391,7 +391,7 @@ This initiative is proceeding now because the user explicitly requested the cont
 - [x] M2. Live write-through sequencing and atomic completion
 - [x] M3. Heartbeat timer and no-progress observability
 - [x] M4. Restart reconciliation and run read APIs
-- [ ] M5. Non-live cancellation, retention, and purge signals
+- [x] M5. Non-live cancellation, retention, and purge signals
 - [ ] M6. Resume-gated flow and frontend/client integration
 - [ ] M7. Integrated verification and closeout
 
@@ -572,3 +572,35 @@ Validation follow-up:
   - `cargo test --manifest-path src-tauri/Cargo.toml continuity_list_run_` passed.
   - `cargo test --manifest-path src-tauri/Cargo.toml -p app-db scan_run_reconcile_` passed.
   - `cargo check --manifest-path src-tauri/Cargo.toml` passed.
+## 2026-04-19 implementation update: M5 non-live cancellation, retention, and purge signals
+
+- Progress: completed the fifth implementation slice for non-live cancellation and retention purge behavior.
+- Completed:
+  - added `cancel_scan_run(runId)` with live-run delegation to `cancel_active_scan()` and explicit non-live cancellation for persisted `STALE` / `ABANDONED` runs;
+  - persisted synthetic non-live `CANCELLED` snapshots and cancellation audit rows in one repository transaction;
+  - added retention purge for old terminal continuity rows while preserving legacy `scan_history` payloads;
+  - added startup purge execution plus the named structured `scan_run_purged` signal when rows are deleted.
+- Decisions:
+  - kept non-live cancel in the scan command surface because it must share active-run delegation logic with the existing live cancel path;
+  - purge deletes only terminal continuity rows and leaves completed explorer payloads intact, keeping legacy history compatibility separate from continuity retention.
+- Surprises:
+  - purge audit rows had to be recorded with `run_id = NULL` because deleted rows cannot continue satisfying the current foreign-key contract after removal;
+  - the Tauri crate needed a `rusqlite` dev-dependency so command-level audit tests could inspect local SQLite rows directly.
+- Known follow-up:
+  - the spec-vs-architecture gap around whether valid resume eligibility suppresses `ABANDONED` still remains unresolved and should be closed before deeper resume/recovery milestones.
+- Validation:
+  - `cargo test --manifest-path src-tauri/Cargo.toml -p app-db scan_run_purge_` passed.
+  - `cargo test --manifest-path src-tauri/Cargo.toml continuity_cancel_run_` passed.
+  - `cargo test --manifest-path src-tauri/Cargo.toml continuity_audit_` passed.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` passed.
+
+## 2026-04-19 M5 follow-up correction: purge eligibility and preserved audit evidence
+
+- aligned purge eligibility with the current run read model by skipping continuity rows that still surface as resumable, which prevents old `ABANDONED` runs with active resume metadata from disappearing on startup before the broader resume contract is finalized
+- preserved prior per-run audit evidence during purge by copying existing audit rows into `run_id = NULL` archival records before deleting the parent run row, so purge no longer erases earlier reconciliation or cancellation evidence
+- added purge regressions for:
+  - resume-eligible abandoned runs remaining retained
+  - prior audit evidence remaining queryable after purge
+- Validation:
+  - `cargo test --manifest-path src-tauri/Cargo.toml -p app-db scan_run_purge_` passed.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` had already passed in the same follow-up after the `app-db` production-code change and remained applicable because the final correction only adjusted the new purge regression fixture.

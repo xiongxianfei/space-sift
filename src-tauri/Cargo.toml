@@ -54,4 +54,5 @@ serde_json = { workspace = true }
 tauri = { version = "2", features = [] }
 
 [dev-dependencies]
+rusqlite = { workspace = true }
 tempfile = { workspace = true }

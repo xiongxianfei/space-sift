@@ -16,12 +16,17 @@ pub fn run() {
             history_store
                 .reconcile_scan_runs()
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
+            let purged = history_store
+                .purge_expired_scan_runs()
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            commands::scan::log_scan_run_purged(&purged);
             app.manage(AppState::new(history_store));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::scan::start_scan,
             commands::scan::cancel_active_scan,
+            commands::scan::cancel_scan_run,
             commands::scan::get_scan_status,
             commands::duplicates::start_duplicate_analysis,
             commands::duplicates::cancel_duplicate_analysis,

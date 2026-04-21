@@ -1,5 +1,5 @@
 use crate::state::{ActiveScanHandle, AppState, ScanManager, ScanRunPersistenceCursor};
-use app_db::HistoryStore;
+use app_db::{HistoryStore, PurgedScanRuns};
 use chrono::{DateTime, Utc};
 use scan_core::{
     CompletedScan, ScanFailure, ScanLifecycleState, ScanRequest, ScanRunSnapshot, ScanRunStatus,
@@ -17,6 +17,14 @@ use tauri::{AppHandle, Emitter, State};
 #[serde(rename_all = "camelCase")]
 pub struct StartScanResponse {
     pub scan_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanRunCommandError {
+    pub code: &'static str,
+    pub message: String,
+    pub run_id: Option<String>,
 }
 
 const CONTINUITY_ERROR_CODE_SNAPSHOT_WRITE_FAILED: &str = "SNAPSHOT_WRITE_FAILED";
@@ -80,6 +88,14 @@ pub fn start_scan(
 pub fn cancel_active_scan(state: State<'_, AppState>) -> Result<(), String> {
     state.scan_manager.cancel_active_scan();
     Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_scan_run(
+    run_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), ScanRunCommandError> {
+    cancel_scan_run_impl(&state.history_store, &state.scan_manager, &run_id)
 }
 
 #[tauri::command]
@@ -309,6 +325,60 @@ fn finish_completed_scan(
             let _ = emit_snapshot(app, &failed_snapshot);
         }
     }
+}
+
+fn scan_run_command_error(
+    error: app_db::HistoryStoreError,
+    run_id: Option<&str>,
+) -> ScanRunCommandError {
+    match error {
+        app_db::HistoryStoreError::NotFound { .. } => ScanRunCommandError {
+            code: "NOT_FOUND",
+            message: match run_id {
+                Some(run_id) => format!("scan run not found: {run_id}"),
+                None => "scan run not found".to_string(),
+            },
+            run_id: run_id.map(str::to_string),
+        },
+        app_db::HistoryStoreError::Conflict { status, .. } => ScanRunCommandError {
+            code: "CONFLICT",
+            message: match run_id {
+                Some(run_id) => format!("scan run cannot be cancelled from status {status}: {run_id}"),
+                None => format!("scan run cannot be cancelled from status {status}"),
+            },
+            run_id: run_id.map(str::to_string),
+        },
+        other => ScanRunCommandError {
+            code: "PERSISTENCE_ERROR",
+            message: other.to_string(),
+            run_id: run_id.map(str::to_string),
+        },
+    }
+}
+
+fn cancel_scan_run_impl(
+    history_store: &HistoryStore,
+    scan_manager: &ScanManager,
+    run_id: &str,
+) -> Result<(), ScanRunCommandError> {
+    if scan_manager
+        .active_scan_id()
+        .map_err(|error| ScanRunCommandError {
+            code: "RUNTIME_ERROR",
+            message: error,
+            run_id: Some(run_id.to_string()),
+        })?
+        .as_deref()
+        == Some(run_id)
+    {
+        scan_manager.cancel_active_scan();
+        return Ok(());
+    }
+
+    history_store
+        .cancel_non_live_scan_run(run_id)
+        .map(|_| ())
+        .map_err(|error| scan_run_command_error(error, Some(run_id)))
 }
 
 fn finish_failed_run(
@@ -632,6 +702,23 @@ fn log_scan_run_no_progress_warning(
     );
 }
 
+fn scan_run_purged_payload(purged: &PurgedScanRuns) -> serde_json::Value {
+    serde_json::json!({
+        "event": "scan_run_purged",
+        "purgedCount": purged.purged_count,
+        "runIds": purged.deleted_run_ids,
+        "timestamp": scan_core::current_timestamp(),
+    })
+}
+
+pub(crate) fn log_scan_run_purged(purged: &PurgedScanRuns) {
+    if purged.purged_count == 0 {
+        return;
+    }
+
+    eprintln!("{}", scan_run_purged_payload(purged));
+}
+
 fn record_persistence_error(target: &Arc<Mutex<Option<String>>>, message: String) -> bool {
     if let Ok(mut slot) = target.lock() {
         if slot.is_none() {
@@ -717,6 +804,7 @@ mod tests {
     use super::*;
     use crate::state::ScanRunPersistenceCursor;
     use scan_core::ScanRunStatus;
+    use tempfile::tempdir;
 
     fn make_previous_running_snapshot() -> ScanStatusSnapshot {
         ScanStatusSnapshot {
@@ -732,6 +820,26 @@ mod tests {
             message: None,
             completed_scan_id: None,
         }
+    }
+
+    fn load_audit_reason_codes(store: &HistoryStore, run_id: &str) -> Vec<String> {
+        let connection =
+            rusqlite::Connection::open(store.db_path()).expect("history database should open");
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT reason_code
+                FROM scan_run_audit
+                WHERE run_id = ?1
+                ORDER BY event_id ASC;
+                "#,
+            )
+            .expect("audit query");
+        statement
+            .query_map(rusqlite::params![run_id], |row| row.get::<_, String>(0))
+            .expect("audit rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("audit values")
     }
 
     #[test]
@@ -1065,5 +1173,189 @@ mod tests {
 
         drop(history_store);
         let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn continuity_cancel_run_delegates_live_runs_to_active_runtime() {
+        let fixture = tempdir().expect("db fixture");
+        let history_store = HistoryStore::new(fixture.path().join("history.db"));
+        let scan_manager = ScanManager::with_now(|| "2026-04-19T10:00:00Z".to_string());
+        let active = scan_manager
+            .start("scan-1".to_string(), "C:\\scan-root".to_string())
+            .expect("scan should start");
+
+        cancel_scan_run_impl(&history_store, &scan_manager, "scan-1")
+            .expect("live run cancel should delegate");
+
+        assert!(active.cancel_flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn continuity_cancel_run_returns_not_found_for_unknown_run() {
+        let fixture = tempdir().expect("db fixture");
+        let history_store = HistoryStore::new(fixture.path().join("history.db"));
+        history_store.initialize().expect("schema initialization");
+        let scan_manager = ScanManager::new();
+
+        let error = cancel_scan_run_impl(&history_store, &scan_manager, "missing-run")
+            .expect_err("missing run should return a not-found error");
+
+        assert_eq!(
+            error,
+            ScanRunCommandError {
+                code: "NOT_FOUND",
+                message: "scan run not found: missing-run".to_string(),
+                run_id: Some("missing-run".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn continuity_cancel_run_returns_conflict_for_terminal_run() {
+        let fixture = tempdir().expect("db fixture");
+        let history_store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            || "2026-04-19T10:00:01Z".to_string(),
+        );
+        let scan_manager = ScanManager::new();
+        history_store
+            .record_scan_run_started(
+                "run-1",
+                "C:\\scan-root",
+                "2026-04-19T10:00:00Z",
+                Some("C:\\scan-root"),
+            )
+            .expect("scan run should persist");
+        history_store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "run-1".to_string(),
+                seq: 2,
+                snapshot_at: "2026-04-19T10:00:01Z".to_string(),
+                created_at: "2026-04-19T10:00:01Z".to_string(),
+                status: ScanRunStatus::Failed,
+                files_discovered: 0,
+                directories_discovered: 0,
+                items_discovered: 0,
+                items_scanned: 0,
+                errors_count: 1,
+                bytes_processed: 0,
+                scan_rate_items_per_sec: 0.0,
+                progress_percent: None,
+                current_path: Some("C:\\scan-root".to_string()),
+                message: Some("walk failed".to_string()),
+            })
+            .expect("terminal snapshot should append");
+
+        let error = cancel_scan_run_impl(&history_store, &scan_manager, "run-1")
+            .expect_err("terminal run should return a conflict error");
+
+        assert_eq!(error.code, "CONFLICT");
+        assert_eq!(error.run_id, Some("run-1".to_string()));
+    }
+
+    #[test]
+    fn continuity_cancel_run_appends_non_live_cancelled_snapshot() {
+        let fixture = tempdir().expect("db fixture");
+        let history_store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            || "2026-04-19T10:03:00Z".to_string(),
+        );
+        let scan_manager = ScanManager::new();
+        history_store
+            .record_scan_run_started(
+                "run-1",
+                "C:\\scan-root",
+                "2026-04-19T10:00:00Z",
+                Some("C:\\scan-root"),
+            )
+            .expect("scan run should persist");
+        history_store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "run-1".to_string(),
+                seq: 2,
+                snapshot_at: "2026-04-19T10:01:00Z".to_string(),
+                created_at: "2026-04-19T10:01:00Z".to_string(),
+                status: ScanRunStatus::Stale,
+                files_discovered: 1,
+                directories_discovered: 1,
+                items_discovered: 2,
+                items_scanned: 2,
+                errors_count: 0,
+                bytes_processed: 64,
+                scan_rate_items_per_sec: 0.0,
+                progress_percent: Some(50.0),
+                current_path: Some("C:\\scan-root".to_string()),
+                message: Some("Run marked stale during startup reconciliation.".to_string()),
+            })
+            .expect("stale snapshot should append");
+
+        cancel_scan_run_impl(&history_store, &scan_manager, "run-1")
+            .expect("stale run should cancel");
+
+        let detail = history_store
+            .open_scan_run("run-1")
+            .expect("cancelled run should reopen");
+        assert_eq!(detail.header.status, ScanRunStatus::Cancelled);
+        assert_eq!(detail.latest_snapshot.status, ScanRunStatus::Cancelled);
+        assert_eq!(detail.latest_snapshot.seq, 3);
+    }
+
+    #[test]
+    fn continuity_audit_non_live_cancel_writes_audit_row() {
+        let fixture = tempdir().expect("db fixture");
+        let history_store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            || "2026-04-19T10:03:00Z".to_string(),
+        );
+        let scan_manager = ScanManager::new();
+        history_store
+            .record_scan_run_started(
+                "run-1",
+                "C:\\scan-root",
+                "2026-04-19T10:00:00Z",
+                Some("C:\\scan-root"),
+            )
+            .expect("scan run should persist");
+        history_store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "run-1".to_string(),
+                seq: 2,
+                snapshot_at: "2026-04-19T10:01:00Z".to_string(),
+                created_at: "2026-04-19T10:01:00Z".to_string(),
+                status: ScanRunStatus::Abandoned,
+                files_discovered: 1,
+                directories_discovered: 1,
+                items_discovered: 2,
+                items_scanned: 2,
+                errors_count: 0,
+                bytes_processed: 64,
+                scan_rate_items_per_sec: 0.0,
+                progress_percent: Some(50.0),
+                current_path: Some("C:\\scan-root".to_string()),
+                message: Some("Run marked abandoned during startup reconciliation.".to_string()),
+            })
+            .expect("abandoned snapshot should append");
+
+        cancel_scan_run_impl(&history_store, &scan_manager, "run-1")
+            .expect("abandoned run should cancel");
+
+        assert_eq!(
+            load_audit_reason_codes(&history_store, "run-1"),
+            vec!["USER_CANCELLED".to_string()]
+        );
+    }
+
+    #[test]
+    fn continuity_audit_purge_signal_payload_is_structured_and_named() {
+        let payload = scan_run_purged_payload(&PurgedScanRuns {
+            purged_count: 2,
+            deleted_run_ids: vec!["run-1".to_string(), "run-2".to_string()],
+        });
+
+        assert_eq!(payload["event"], "scan_run_purged");
+        assert_eq!(payload["purgedCount"], 2);
+        assert_eq!(payload["runIds"][0], "run-1");
+        assert_eq!(payload["runIds"][1], "run-2");
+        assert!(payload["timestamp"].as_str().is_some());
     }
 }

@@ -265,6 +265,19 @@ impl ScanManager {
         }
     }
 
+    pub fn active_scan_id(&self) -> Result<Option<String>, String> {
+        let runtime = self
+            .inner
+            .lock()
+            .map_err(|_| "The scan state lock is poisoned.".to_string())?;
+
+        if runtime.active.is_some() {
+            Ok(runtime.status.scan_id.clone())
+        } else {
+            Ok(None)
+        }
+    }
+
     fn now_timestamp(&self) -> String {
         (self.now)()
     }
