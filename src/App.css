@@ -102,6 +102,210 @@ select {
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
 }
 
+.workspace-status-panel,
+.workspace-nav-panel,
+.workspace-panel {
+  margin-top: 22px;
+}
+
+.workspace-status-layout,
+.workspace-status-summary,
+.workspace-tablist,
+.cleanup-layout,
+.cleanup-source-grid,
+.cleanup-candidates,
+.cleanup-result,
+.cleanup-result-list {
+  display: grid;
+  gap: 16px;
+}
+
+.workspace-status-layout {
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.9fr) minmax(220px, 0.7fr);
+  align-items: start;
+}
+
+.workspace-status-copy h2 {
+  margin: 8px 0 0;
+}
+
+.workspace-status-action {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
+.workspace-status-action .primary-button,
+.workspace-status-action .empty-state {
+  width: 100%;
+}
+
+.workspace-nav-panel {
+  padding: 24px 28px;
+}
+
+.workspace-tablist {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.workspace-tab {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-height: 118px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #f5f1e8;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.workspace-tab:hover {
+  transform: translateY(-1px);
+  border-color: rgba(243, 165, 78, 0.24);
+}
+
+.workspace-tab:focus-visible {
+  outline: 2px solid rgba(216, 237, 255, 0.75);
+  outline-offset: 2px;
+}
+
+.workspace-tab.is-active {
+  background:
+    linear-gradient(180deg, rgba(243, 165, 78, 0.16), rgba(255, 255, 255, 0.03)),
+    rgba(255, 255, 255, 0.03);
+  border-color: rgba(243, 165, 78, 0.34);
+}
+
+.workspace-tab-label {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.workspace-tab-description {
+  color: #c4cddd;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.shell-banner {
+  margin-top: 16px;
+}
+
+.workspace-panel {
+  padding: 28px;
+}
+
+.cleanup-layout {
+  gap: 18px;
+}
+
+.cleanup-source-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.cleanup-rules {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cleanup-rules legend {
+  padding: 0 8px;
+  color: #9cb4ca;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.82rem;
+}
+
+.cleanup-rule-option {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cleanup-rule-option span {
+  display: grid;
+  gap: 4px;
+}
+
+.cleanup-rule-option small {
+  color: #c4cddd;
+}
+
+.advanced-toggle {
+  border: 1px solid rgba(243, 165, 78, 0.2);
+  background: rgba(243, 165, 78, 0.08);
+}
+
+.cleanup-actions {
+  justify-content: flex-start;
+}
+
+.cleanup-candidates {
+  gap: 12px;
+}
+
+.cleanup-candidate {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cleanup-candidate-meta {
+  display: grid;
+  gap: 6px;
+}
+
+.cleanup-candidate-meta strong,
+.cleanup-result-list span {
+  word-break: break-all;
+}
+
+.cleanup-source-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cleanup-result {
+  gap: 14px;
+}
+
+.cleanup-result-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cleanup-result-list li {
+  display: grid;
+  gap: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cleanup-result-list li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
 .panel {
   padding: 28px;
 }

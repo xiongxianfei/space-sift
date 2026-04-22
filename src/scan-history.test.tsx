@@ -385,10 +385,24 @@ function getActiveScanPanel() {
   return panel;
 }
 
+async function activateWorkspace(label: string) {
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("tab", { name: label }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toHaveAttribute("aria-selected", "true");
+  });
+}
+
 describe("Space Sift scan and history flow", () => {
   it("switches from a loaded result into dedicated active-scan mode", async () => {
     const mock = createMockClient();
     render(<App client={mock.client} />);
+
+    await activateWorkspace("History");
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
@@ -397,8 +411,13 @@ describe("Space Sift scan and history flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /reopen scan scan-1/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
+      expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-1");
+      expect(screen.getByText(/loaded scan-1 from local history/i)).toBeInTheDocument();
     });
+
+    await activateWorkspace("Explorer");
+
+    await activateWorkspace("Scan");
 
     fireEvent.change(screen.getByLabelText(/scan root/i), {
       target: { value: "C:\\Users\\xiongxianfei\\Downloads" },
@@ -438,9 +457,7 @@ describe("Space Sift scan and history flow", () => {
     });
     render(<App client={mock.client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
-    });
+    await activateWorkspace("Scan");
 
     fireEvent.change(screen.getByLabelText(/scan root/i), {
       target: { value: "C:\\Users\\xiongxianfei\\Videos" },
@@ -484,6 +501,12 @@ describe("Space Sift scan and history flow", () => {
 
     await waitFor(() => {
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-2");
+      expect(screen.getByText(/scan complete\./i)).toBeInTheDocument();
+    });
+
+    await activateWorkspace("Explorer");
+
+    await waitFor(() => {
       expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: /active scan/i })).not.toBeInTheDocument();
       expect(
@@ -522,9 +545,7 @@ describe("Space Sift scan and history flow", () => {
 
     render(<App client={mock.client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
-    });
+    await activateWorkspace("Scan");
 
     fireEvent.change(screen.getByLabelText(/scan root/i), {
       target: { value: "C:\\Users\\xiongxianfei\\Videos" },
@@ -537,6 +558,8 @@ describe("Space Sift scan and history flow", () => {
       });
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-2");
     });
+
+    await activateWorkspace("Explorer");
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
@@ -551,9 +574,7 @@ describe("Space Sift scan and history flow", () => {
     const mock = createMockClient();
     render(<App client={mock.client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
-    });
+    await activateWorkspace("Scan");
 
     fireEvent.change(screen.getByLabelText(/scan root/i), {
       target: { value: "C:\\Users\\xiongxianfei\\Downloads" },
@@ -588,8 +609,13 @@ describe("Space Sift scan and history flow", () => {
       });
     });
 
+    await activateWorkspace("History");
     fireEvent.click(screen.getByRole("button", { name: /reopen scan scan-1/i }));
-    expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-1");
+    await waitFor(() => {
+      expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-1");
+    });
+
+    await activateWorkspace("Explorer");
 
     const contentsTable = await screen.findByRole("table", {
       name: /current folder contents/i,
@@ -626,6 +652,8 @@ describe("Space Sift scan and history flow", () => {
 
     render(<App client={mock.client} />);
 
+    await activateWorkspace("History");
+
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /reopen scan scan-2/i })).toBeInTheDocument();
     });
@@ -650,7 +678,7 @@ describe("Space Sift scan and history flow", () => {
 
     await waitFor(() => {
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-2");
-      expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
+      expect(screen.getByText(/loaded scan-2 from local history/i)).toBeInTheDocument();
     });
 
     const loadedEntry = screen
@@ -693,6 +721,8 @@ describe("Space Sift scan and history flow", () => {
 
     render(<App client={mock.client} />);
 
+    await activateWorkspace("History");
+
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /reopen scan scan-24/i })).toBeInTheDocument();
     });
@@ -729,7 +759,7 @@ describe("Space Sift scan and history flow", () => {
 
     await waitFor(() => {
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-24");
-      expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
+      expect(screen.getByText(/loaded scan-24 from local history/i)).toBeInTheDocument();
     });
 
     const loadedEntry = screen
@@ -763,9 +793,7 @@ describe("Space Sift scan and history flow", () => {
     const mock = createMockClient();
     render(<App client={mock.client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
-    });
+    await activateWorkspace("Scan");
 
     fireEvent.change(screen.getByLabelText(/scan root/i), {
       target: { value: "C:\\Users\\xiongxianfei\\Downloads" },
@@ -805,9 +833,7 @@ describe("Space Sift scan and history flow", () => {
     const firstMock = createMockClient();
     const { unmount } = render(<App client={firstMock.client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
-    });
+    await activateWorkspace("Scan");
 
     fireEvent.change(screen.getByLabelText(/scan root/i), {
       target: { value: "C:\\Users\\xiongxianfei\\Downloads" },
@@ -826,9 +852,7 @@ describe("Space Sift scan and history flow", () => {
     const secondMock = createMockClient();
     render(<App client={secondMock.client} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
-    });
+    await activateWorkspace("Scan");
 
     fireEvent.change(screen.getByLabelText(/scan root/i), {
       target: { value: "C:\\Users\\xiongxianfei\\Downloads" },
@@ -867,12 +891,19 @@ describe("Space Sift scan and history flow", () => {
 
     render(<App client={mock.client} />);
 
+    await activateWorkspace("History");
+
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /interrupted runs/i })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole("tabpanel", { name: "History" })).getByRole("heading", {
+          name: /interrupted runs/i,
+        }),
+      ).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/^abandoned$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^stale$/i)).toBeInTheDocument();
+    const historyPanel = screen.getByRole("tabpanel", { name: "History" });
+    expect(within(historyPanel).getByText(/^abandoned$/i)).toBeInTheDocument();
+    expect(within(historyPanel).getByText(/^stale$/i)).toBeInTheDocument();
     const abandonedCard = screen
       .getByText(/run id: run-abandoned/i)
       .closest(".history-entry");
@@ -914,8 +945,14 @@ describe("Space Sift scan and history flow", () => {
 
     render(<App client={mock.client} />);
 
+    await activateWorkspace("History");
+
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /interrupted runs/i })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole("tabpanel", { name: "History" })).getByRole("heading", {
+          name: /interrupted runs/i,
+        }),
+      ).toBeInTheDocument();
     });
 
     const resumeButton = screen.getByRole("button", { name: /resume run run-abandoned/i });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { SpaceSiftClient } from "./lib/spaceSiftClient";
@@ -260,10 +260,27 @@ function createCleanupClient(options?: {
   return client;
 }
 
+async function activateWorkspace(label: string) {
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("tab", { name: label }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toHaveAttribute("aria-selected", "true");
+  });
+}
+
+function getCleanupPanel() {
+  return screen.getByRole("tabpanel", { name: "Cleanup" });
+}
+
 describe("Space Sift cleanup workflow", () => {
   it("builds a cleanup preview from duplicate selections and enabled rules", async () => {
     const client = createCleanupClient();
     render(<App client={client} />);
+    await activateWorkspace("Cleanup");
 
     expect(
       await screen.findByRole(
@@ -285,16 +302,18 @@ describe("Space Sift cleanup workflow", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/2 cleanup candidates/i)).toBeInTheDocument();
-      expect(screen.getByText(/80 bytes/i)).toBeInTheDocument();
-      expect(screen.getByText(/duplicate selection/i)).toBeInTheDocument();
-      expect(screen.getByText(/files in temp folders/i)).toBeInTheDocument();
+      const cleanupPanel = getCleanupPanel();
+      expect(within(cleanupPanel).getByText(/2 cleanup candidates/i)).toBeInTheDocument();
+      expect(within(cleanupPanel).getByText(/^80 bytes$/i)).toBeInTheDocument();
+      expect(within(cleanupPanel).getByText(/duplicate selection/i)).toBeInTheDocument();
+      expect(within(cleanupPanel).getAllByText(/files in temp folders/i).length).toBeGreaterThan(0);
     });
   }, uiTestTimeout);
 
   it("executes recycle-bin-first cleanup by default and recommends a fresh scan", async () => {
     const client = createCleanupClient();
     render(<App client={client} />);
+    await activateWorkspace("Cleanup");
 
     expect(
       await screen.findByRole(
@@ -326,6 +345,7 @@ describe("Space Sift cleanup workflow", () => {
   it("keeps permanent delete behind an explicit advanced confirmation path", async () => {
     const client = createCleanupClient();
     render(<App client={client} />);
+    await activateWorkspace("Cleanup");
 
     expect(
       await screen.findByRole(
@@ -359,6 +379,7 @@ describe("Space Sift cleanup workflow", () => {
 
   it("requires a fresh scan before cleanup preview when file-entry data is missing", async () => {
     render(<App client={createCleanupClient({ scan: makeSummaryOnlyScan("scan-legacy") })} />);
+    await activateWorkspace("Cleanup");
 
     await waitFor(() => {
       expect(screen.getByText(/fresh scan is required before cleanup preview/i)).toBeInTheDocument();

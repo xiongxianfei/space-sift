@@ -2,8 +2,10 @@ import {
   startTransition,
   useEffect,
   useEffectEvent,
+  useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
 } from "react";
 import "./App.css";
 import {
@@ -29,6 +31,11 @@ import type {
   ScanRunSummary,
   ScanStatusSnapshot,
 } from "./lib/spaceSiftTypes";
+import {
+  deriveGlobalStatus,
+  workspaceDefinitions,
+  type WorkspaceTab,
+} from "./workspaceNavigation";
 
 const safetyPrinciples = [
   {
@@ -391,6 +398,7 @@ function buildDuplicateDeletePaths(
 
 function App({ client = unsupportedClient }: AppProps) {
   const [rootPath, setRootPath] = useState("");
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceTab>("overview");
   const [scanStatus, setScanStatus] = useState<ScanStatusSnapshot>(idleScanStatus);
   const [duplicateStatus, setDuplicateStatus] =
     useState<DuplicateStatusSnapshot>(idleDuplicateStatus);
@@ -419,6 +427,15 @@ function App({ client = unsupportedClient }: AppProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const workspaceTabRefs = useRef<Record<WorkspaceTab, HTMLButtonElement | null>>({
+    overview: null,
+    scan: null,
+    history: null,
+    explorer: null,
+    duplicates: null,
+    cleanup: null,
+    safety: null,
+  });
 
   const resetCleanupState = useEffectEvent(() => {
     startTransition(() => {
@@ -441,6 +458,63 @@ function App({ client = unsupportedClient }: AppProps) {
       setPermanentDeleteConfirmed(false);
     });
   });
+
+  function activateWorkspace(tab: WorkspaceTab) {
+    setActiveWorkspace(tab);
+  }
+
+  function setWorkspaceTabRef(tab: WorkspaceTab, element: HTMLButtonElement | null) {
+    workspaceTabRefs.current[tab] = element;
+  }
+
+  function focusWorkspaceAtIndex(index: number) {
+    const nextWorkspace = workspaceDefinitions[index];
+    if (!nextWorkspace) {
+      return;
+    }
+
+    workspaceTabRefs.current[nextWorkspace.value]?.focus();
+  }
+
+  function handleWorkspaceKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    workspace: WorkspaceTab,
+  ) {
+    const currentIndex = workspaceDefinitions.findIndex(
+      (definition) => definition.value === workspace,
+    );
+    if (currentIndex < 0) {
+      return;
+    }
+
+    switch (event.key) {
+      case "ArrowRight":
+        event.preventDefault();
+        focusWorkspaceAtIndex((currentIndex + 1) % workspaceDefinitions.length);
+        return;
+      case "ArrowLeft":
+        event.preventDefault();
+        focusWorkspaceAtIndex(
+          (currentIndex - 1 + workspaceDefinitions.length) % workspaceDefinitions.length,
+        );
+        return;
+      case "Home":
+        event.preventDefault();
+        focusWorkspaceAtIndex(0);
+        return;
+      case "End":
+        event.preventDefault();
+        focusWorkspaceAtIndex(workspaceDefinitions.length - 1);
+        return;
+      case "Enter":
+      case " ":
+        event.preventDefault();
+        activateWorkspace(workspace);
+        return;
+      default:
+        return;
+    }
+  }
 
   const loadHistory = useEffectEvent(async () => {
     try {
@@ -497,30 +571,43 @@ function App({ client = unsupportedClient }: AppProps) {
     }
   });
 
-  const openStoredScan = useEffectEvent(async (scanId: string, nextNotice?: string) => {
-    try {
-      const result = await client.openScanHistory(scanId);
-      startTransition(() => {
-        setCurrentScan(result);
-        setCurrentExplorerPath(result.rootPath);
-        setExplorerSortMode("size");
-        setNotice(nextNotice ?? `Loaded ${scanId} from local history.`);
-        setErrorMessage(null);
-        setDuplicateStatus(idleDuplicateStatus);
-        setDuplicateAnalysis(null);
-        setDuplicateKeepSelections({});
-        setExpandedDuplicateGroups({});
-        setSelectedCleanupRuleIds([]);
-        setCleanupPreview(null);
-        setCleanupExecutionResult(null);
-        setPermanentDeleteConfirmed(false);
-      });
-    } catch (error) {
-      startTransition(() => {
-        setErrorMessage(describeError(error));
-      });
-    }
-  });
+  const openStoredScan = useEffectEvent(
+    async (
+      scanId: string,
+      nextNotice?: string,
+      preservedDuplicateStatusSnapshot?: DuplicateStatusSnapshot,
+    ) => {
+      try {
+        const result = await client.openScanHistory(scanId);
+        startTransition(() => {
+          const preservedDuplicateStatus =
+            preservedDuplicateStatusSnapshot?.state === "running" &&
+            preservedDuplicateStatusSnapshot.scanId === result.scanId
+              ? preservedDuplicateStatusSnapshot
+              : duplicateStatus.state === "running" && duplicateStatus.scanId === result.scanId
+                ? duplicateStatus
+                : idleDuplicateStatus;
+          setCurrentScan(result);
+          setCurrentExplorerPath(result.rootPath);
+          setExplorerSortMode("size");
+          setNotice(nextNotice ?? `Loaded ${scanId} from local history.`);
+          setErrorMessage(null);
+          setDuplicateStatus(preservedDuplicateStatus);
+          setDuplicateAnalysis(null);
+          setDuplicateKeepSelections({});
+          setExpandedDuplicateGroups({});
+          setSelectedCleanupRuleIds([]);
+          setCleanupPreview(null);
+          setCleanupExecutionResult(null);
+          setPermanentDeleteConfirmed(false);
+        });
+      } catch (error) {
+        startTransition(() => {
+          setErrorMessage(describeError(error));
+        });
+      }
+    },
+  );
 
   const handleProgress = useEffectEvent((snapshot: ScanStatusSnapshot) => {
     startTransition(() => {
@@ -624,7 +711,11 @@ function App({ client = unsupportedClient }: AppProps) {
         });
 
         if (initialStatus.state === "completed" && initialStatus.completedScanId) {
-          await openStoredScan(initialStatus.completedScanId);
+          await openStoredScan(
+            initialStatus.completedScanId,
+            undefined,
+            initialDuplicateStatus,
+          );
         }
 
         if (
@@ -1023,31 +1114,166 @@ function App({ client = unsupportedClient }: AppProps) {
         getSortableTimestamp(right.header.lastSnapshotAt) -
         getSortableTimestamp(left.header.lastSnapshotAt),
     );
+  const cleanupPreviewAvailable = Boolean(
+    currentScan &&
+      hasFileEntries(currentScan) &&
+      (duplicateDeletePaths.length > 0 || selectedCleanupRuleIds.length > 0),
+  );
+  const globalStatus = deriveGlobalStatus({
+    scanStatus,
+    duplicateStatus,
+    currentScan,
+    interruptedRuns,
+    duplicateEligible,
+    browseableScan: Boolean(browseableScan),
+    cleanupPreview,
+    cleanupExecutionResult,
+    cleanupPreviewAvailable,
+  });
+  const activeWorkspaceDefinition =
+    workspaceDefinitions.find((definition) => definition.value === activeWorkspace) ??
+    workspaceDefinitions[0]!;
+  const nextSafeAction = globalStatus.nextSafeAction;
+  const nextSafeActionLabel =
+    nextSafeAction?.label ??
+    globalStatus.noActionLabel ??
+    "No safe next action right now.";
+  const shellNotices = [...new Set([scanStatus.message, notice].filter(Boolean))];
 
-  return (
-    <main className="shell">
-      <section className="hero">
-        <div className="eyebrow">Windows 11 results explorer, duplicates, and cleanup preview</div>
-        <h1>Space Sift</h1>
-        <p className="lede">
-          Scan a folder or drive, surface the largest space consumers, verify duplicate
-          files, preview a narrow cleanup set, and delete through a review-first desktop
-          flow instead of blind cleanup.
-        </p>
-        <div className="hero-callouts" aria-label="Current scope">
-          <span>Browseable folder drill-down</span>
-          <span>Verified duplicate groups</span>
-          <span>Recycle Bin first cleanup</span>
+  function renderOverviewPanel() {
+    return (
+      <section
+        className="panel workspace-panel"
+        role="tabpanel"
+        id="workspace-panel-overview"
+        aria-labelledby="workspace-tab-overview"
+      >
+        <div className="panel-header">
+          <h2>Overview</h2>
+          <p>
+            Keep the current loaded result, live work, interrupted runs, and the next
+            safe action visible while you move between the major workflows.
+          </p>
         </div>
-      </section>
 
-      <section className="workspace-grid">
-        <section className="panel panel-tall">
-          <div className="panel-header">
-            <h2>Scan workspace</h2>
+        <div className="result-summary">
+          <article className="summary-card">
+            <span>Global state</span>
+            <strong>{globalStatus.primaryStateLabel}</strong>
+            <p className="current-path">{globalStatus.contextLabel}</p>
+          </article>
+          <article className="summary-card">
+            <span>Loaded scan</span>
+            <strong>{currentScan ? currentScan.scanId : "No loaded scan"}</strong>
+            <p className="current-path">
+              {currentScan ? currentScan.rootPath : "Use Scan or History to load a result."}
+            </p>
+          </article>
+          <article className="summary-card">
+            <span>Interrupted runs</span>
+            <strong>{interruptedRuns.length}</strong>
+            <p className="current-path">
+              {interruptedRuns.length > 0
+                ? "Recovery-facing scan runs remain visible in History."
+                : "No interrupted runs currently need review."}
+            </p>
+          </article>
+          <article className="summary-card">
+            <span>Next safe action</span>
+            <strong>{nextSafeActionLabel}</strong>
+            <p className="current-path">{activeWorkspaceDefinition.description}</p>
+          </article>
+        </div>
+
+        <div className="results-columns">
+          <section className="result-card">
+            <h3>Current task context</h3>
+            <ul>
+              <li>
+                <span>Active workspace</span>
+                <strong>{activeWorkspaceDefinition.label}</strong>
+              </li>
+              <li>
+                <span>History entries</span>
+                <strong>{history.length} stored scans</strong>
+              </li>
+              <li>
+                <span>Duplicate review</span>
+                <strong>
+                  {duplicateAnalysis
+                    ? `${duplicateAnalysis.groups.length} verified groups loaded`
+                    : "No duplicate review is loaded"}
+                </strong>
+              </li>
+            </ul>
+          </section>
+
+          <section className="result-card">
+            <h3>Loaded result summary</h3>
+            {currentScan ? (
+              <ul>
+                <li>
+                  <span>Root path</span>
+                  <strong>{currentScan.rootPath}</strong>
+                </li>
+                <li>
+                  <span>Files</span>
+                  <strong>{currentScan.totalFiles}</strong>
+                </li>
+                <li>
+                  <span>Total bytes</span>
+                  <strong>{formatBytes(currentScan.totalBytes)}</strong>
+                </li>
+              </ul>
+            ) : (
+              <p className="empty-state">
+                No completed scan is loaded yet. Start a scan or reopen one from local
+                history.
+              </p>
+            )}
+          </section>
+        </div>
+
+        <section className="result-card">
+          <div className="panel-header compact-header">
+            <h3>Safety highlights</h3>
+            <p>Cleanup remains review-first, local-only, and explicit by design.</p>
+          </div>
+          <div className="safety-grid">
+            {safetyPrinciples.map((principle) => (
+              <article className="principle-card" key={principle.title}>
+                <h3>{principle.title}</h3>
+                <p>{principle.body}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  function renderScanPanel() {
+    return (
+      <section
+        className="panel workspace-panel"
+        role="tabpanel"
+        id="workspace-panel-scan"
+        aria-labelledby="workspace-tab-scan"
+      >
+        <div className="panel-header">
+          <h2>Scan</h2>
+          <p>
+            Start a scan, monitor live progress, and keep the running-scan state
+            distinct from any previously loaded completed result.
+          </p>
+        </div>
+
+        <section className="result-card">
+          <div className="panel-header compact-header">
+            <h3>Scan workspace</h3>
             <p>
-              Point the scanner at a Windows folder or drive path. Progress stays visible
-              while results are prepared for local history storage.
+              Point the scanner at a Windows folder or drive path. Progress stays
+              visible while results are prepared for local history storage.
             </p>
           </div>
 
@@ -1101,15 +1327,108 @@ function App({ client = unsupportedClient }: AppProps) {
               <strong>{formatBytes(scanStatus.bytesProcessed)} processed</strong>
             </div>
           </div>
-
-          {scanStatus.message ? <p className="notice-banner">{scanStatus.message}</p> : null}
-          {notice ? <p className="notice-banner">{notice}</p> : null}
-          {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
         </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Recent scans</h2>
+        {isScanRunning ? (
+          <section className="result-card active-scan-panel" aria-live="polite">
+            <div className="panel-header compact-header">
+              <h3>Active scan</h3>
+              <p>
+                Progress stays indeterminate while Space Sift discovers more files and
+                folders. Previous completed scans stay in History until this run
+                finishes.
+              </p>
+            </div>
+
+            <div className="active-scan-grid">
+              <article className="summary-card">
+                <span>Scan root</span>
+                <strong>{activeScanRoot}</strong>
+              </article>
+              <article className="summary-card">
+                <span>Current activity</span>
+                <strong>
+                  {activeScanPath ? getPathLabel(activeScanPath) : "Waiting for path context"}
+                </strong>
+                <p className="current-path active-scan-path">
+                  {activeScanPath ?? "The scanner has not emitted a narrower path yet."}
+                </p>
+              </article>
+              <article className="summary-card">
+                <span>Started</span>
+                <strong>{activeScanStarted ?? "Starting scan"}</strong>
+                <p className="active-scan-meta">
+                  {activeScanElapsed ?? "Elapsed time will appear after progress updates."}
+                </p>
+              </article>
+              <article className="summary-card">
+                <span>Last update</span>
+                <strong>{activeScanHeartbeat}</strong>
+                <p className="active-scan-meta">
+                  Live progress is emitted at a bounded cadence.
+                </p>
+              </article>
+            </div>
+
+            <div className="active-scan-toolbar">
+              <div className="result-summary">
+                <article className="summary-card">
+                  <span>State</span>
+                  <strong>{scanStatus.state}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Files discovered</span>
+                  <strong>{scanStatus.filesDiscovered}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Directories discovered</span>
+                  <strong>{scanStatus.directoriesDiscovered}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Bytes processed</span>
+                  <strong>{formatBytes(scanStatus.bytesProcessed)} processed</strong>
+                </article>
+              </div>
+
+              <div className="action-row">
+                <button type="button" className="secondary-button" onClick={handleCancelScan}>
+                  Cancel scan
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="result-card">
+            <h3>Current scan context</h3>
+            <p className="empty-state">
+              No live scan is currently running. Use Start scan to create a new active
+              scan session.
+            </p>
+          </section>
+        )}
+      </section>
+    );
+  }
+
+  function renderHistoryPanel() {
+    return (
+      <section
+        className="panel workspace-panel"
+        role="tabpanel"
+        id="workspace-panel-history"
+        aria-labelledby="workspace-tab-history"
+      >
+        <div className="panel-header">
+          <h2>History</h2>
+          <p>
+            Reopen stored scans from local history and review interrupted runs without
+            guessing from session-only state.
+          </p>
+        </div>
+
+        <section className="result-card">
+          <div className="panel-header compact-header">
+            <h3>Recent scans</h3>
             <p>Completed scan results stay local so you can reopen them without rescanning.</p>
           </div>
 
@@ -1156,7 +1475,9 @@ function App({ client = unsupportedClient }: AppProps) {
                         <div className="history-meta">
                           <div className="history-title-row">
                             <strong>{entry.rootPath}</strong>
-                            {isLoadedResult ? <span className="history-badge">Loaded result</span> : null}
+                            {isLoadedResult ? (
+                              <span className="history-badge">Loaded result</span>
+                            ) : null}
                           </div>
                           <span>{formatTimestamp(entry.completedAt)}</span>
                           <span>{formatBytes(entry.totalBytes)}</span>
@@ -1176,763 +1497,909 @@ function App({ client = unsupportedClient }: AppProps) {
               )}
             </>
           )}
+        </section>
+
+        <section className="result-card">
+          <div className="panel-header compact-header">
+            <h3>Interrupted runs</h3>
+            <p>Recovered runs stay visible until you resume them or cancel them.</p>
+          </div>
 
           {interruptedRuns.length > 0 ? (
-            <>
-              <div className="panel-header">
-                <h3>Interrupted runs</h3>
-                <p>Recovered runs stay visible until you resume them or cancel them.</p>
-              </div>
-              <ul className="history-list">
-                {interruptedRuns.map((run) => (
-                  <li key={run.header.runId} className="history-entry">
-                    <div className="history-meta">
-                      <div className="history-title-row">
-                        <strong>{run.header.rootPath}</strong>
-                        <span className="history-badge">{run.header.status}</span>
-                        {run.hasResume ? (
-                          <span className="history-badge">
-                            {run.canResume ? "Resume available" : "Resume unavailable"}
-                          </span>
-                        ) : null}
-                      </div>
-                      <span>Created {formatTimestamp(run.createdAt)}</span>
-                      <span>{formatTimestamp(run.header.lastSnapshotAt)}</span>
-                      <span>Seq {run.seq}</span>
-                      <span>{run.itemsScanned} items scanned</span>
-                      <span>{run.errorsCount} errors</span>
-                      <span>
-                        {run.progressPercent == null
-                          ? "Progress pending"
-                          : `${Math.round(run.progressPercent)}% progress`}
-                      </span>
-                      <span>{run.scanRateItemsPerSec.toFixed(1)} items/s</span>
-                      <span className="history-id">Run ID: {run.header.runId}</span>
-                    </div>
-                    <div className="action-row">
+            <ul className="history-list">
+              {interruptedRuns.map((run) => (
+                <li key={run.header.runId} className="history-entry">
+                  <div className="history-meta">
+                    <div className="history-title-row">
+                      <strong>{run.header.rootPath}</strong>
+                      <span className="history-badge">{run.header.status}</span>
                       {run.hasResume ? (
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          disabled={!run.canResume || scanStatus.state === "running"}
-                          onClick={() => void handleResumeRun(run)}
-                        >
-                          Resume run {run.header.runId}
-                        </button>
+                        <span className="history-badge">
+                          {run.canResume ? "Resume available" : "Resume unavailable"}
+                        </span>
                       ) : null}
+                    </div>
+                    <span>Created {formatTimestamp(run.createdAt)}</span>
+                    <span>{formatTimestamp(run.header.lastSnapshotAt)}</span>
+                    <span>Seq {run.seq}</span>
+                    <span>{run.itemsScanned} items scanned</span>
+                    <span>{run.errorsCount} errors</span>
+                    <span>
+                      {run.progressPercent == null
+                        ? "Progress pending"
+                        : `${Math.round(run.progressPercent)}% progress`}
+                    </span>
+                    <span>{run.scanRateItemsPerSec.toFixed(1)} items/s</span>
+                    <span className="history-id">Run ID: {run.header.runId}</span>
+                  </div>
+                  <div className="action-row">
+                    {run.hasResume ? (
                       <button
                         type="button"
                         className="secondary-button"
-                        onClick={() => void handleCancelRun(run.header.runId)}
+                        disabled={!run.canResume || scanStatus.state === "running"}
+                        onClick={() => void handleResumeRun(run)}
                       >
-                        Cancel run {run.header.runId}
+                        Resume run {run.header.runId}
                       </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
+                    ) : null}
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void handleCancelRun(run.header.runId)}
+                    >
+                      Cancel run {run.header.runId}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-state">No interrupted runs currently need review.</p>
+          )}
         </section>
       </section>
+    );
+  }
 
-      <section className="panel">
+  function renderExplorerPanel() {
+    return (
+      <section
+        className="panel workspace-panel"
+        role="tabpanel"
+        id="workspace-panel-explorer"
+        aria-labelledby="workspace-tab-explorer"
+      >
         <div className="panel-header">
-          <h2>Safety model</h2>
-          <p>Review-first cleanup stays local, explicit, and unprivileged by default.</p>
+          <h2>Explorer</h2>
+          <p>
+            Browse the currently loaded result, reopen the stored root in Explorer, and
+            keep summary-only scans in a clean degraded state.
+          </p>
         </div>
-        <div className="principles-grid">
-          {safetyPrinciples.map((principle) => (
-            <article className="principle-card" key={principle.title}>
-              <h3>{principle.title}</h3>
-              <p>{principle.body}</p>
-            </article>
-          ))}
-        </div>
-      </section>
 
-      {isScanRunning ? (
-        <section className="panel active-scan-panel" aria-live="polite">
-          <div className="panel-header">
-            <h2>Active scan</h2>
-            <p>
-              Progress stays indeterminate while Space Sift discovers more files and
-              folders. Previous completed scans stay in Recent scans until this run
-              finishes.
-            </p>
-          </div>
+        {currentScan ? (
+          <>
+            <section className="result-card">
+              <div className="panel-header compact-header">
+                <h3>Current result</h3>
+                <p>
+                  Loaded scan {currentScan.scanId} from {currentScan.rootPath}. Review the
+                  stored result without rescanning.
+                </p>
+              </div>
 
-          <div className="active-scan-grid">
-            <article className="summary-card">
-              <span>Scan root</span>
-              <strong>{activeScanRoot}</strong>
-            </article>
-            <article className="summary-card">
-              <span>Current activity</span>
-              <strong>{activeScanPath ? getPathLabel(activeScanPath) : "Waiting for path context"}</strong>
-              <p className="current-path active-scan-path">
-                {activeScanPath ?? "The scanner has not emitted a narrower path yet."}
-              </p>
-            </article>
-            <article className="summary-card">
-              <span>Started</span>
-              <strong>{activeScanStarted ?? "Starting scan"}</strong>
-              <p className="active-scan-meta">
-                {activeScanElapsed ?? "Elapsed time will appear after progress updates."}
-              </p>
-            </article>
-            <article className="summary-card">
-              <span>Last update</span>
-              <strong>{activeScanHeartbeat}</strong>
-              <p className="active-scan-meta">Live progress is emitted at a bounded cadence.</p>
-            </article>
-          </div>
+              {browseableScan && resolvedExplorerPath ? (
+                <div className="explorer-grid">
+                  <section className="result-card explorer-card">
+                    <div className="explorer-header">
+                      <div>
+                        <h3>Results explorer</h3>
+                        <p className="explorer-note">
+                          The current folder view is read-only, reflects the stored scan
+                          result without rescanning, and shows each row&apos;s share of the
+                          current level.
+                        </p>
+                      </div>
+                      <div className="sort-controls" aria-label="Sort controls">
+                        <button
+                          type="button"
+                          className={`secondary-button ${explorerSortMode === "size" ? "is-active" : ""}`}
+                          onClick={() => setExplorerSortMode("size")}
+                        >
+                          Sort by size
+                        </button>
+                        <button
+                          type="button"
+                          className={`secondary-button ${explorerSortMode === "name" ? "is-active" : ""}`}
+                          onClick={() => setExplorerSortMode("name")}
+                        >
+                          Sort by name
+                        </button>
+                      </div>
+                    </div>
 
-          <div className="active-scan-toolbar">
-            <div className="result-summary">
-              <article className="summary-card">
-                <span>State</span>
-                <strong>{scanStatus.state}</strong>
-              </article>
-              <article className="summary-card">
-                <span>Files discovered</span>
-                <strong>{scanStatus.filesDiscovered}</strong>
-              </article>
-              <article className="summary-card">
-                <span>Directories discovered</span>
-                <strong>{scanStatus.directoriesDiscovered}</strong>
-              </article>
-              <article className="summary-card">
-                <span>Bytes processed</span>
-                <strong>{formatBytes(scanStatus.bytesProcessed)} processed</strong>
-              </article>
-            </div>
+                    <div className="breadcrumbs" aria-label="Current folder breadcrumbs">
+                      {explorerBreadcrumbs.map((breadcrumb, index) => (
+                        <span className="breadcrumb-segment" key={breadcrumb.path}>
+                          {index > 0 ? <span className="breadcrumb-divider">\</span> : null}
+                          <button
+                            type="button"
+                            className="breadcrumb-button"
+                            onClick={() => handleBrowsePath(breadcrumb.path)}
+                          >
+                            {breadcrumb.label}
+                          </button>
+                        </span>
+                      ))}
+                    </div>
 
-            <div className="action-row">
-              <button type="button" className="secondary-button" onClick={handleCancelScan}>
-                Cancel scan
-              </button>
-            </div>
-          </div>
-        </section>
-      ) : currentScan ? (
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Current result</h2>
-            <p>
-              Loaded scan {currentScan.scanId} from {currentScan.rootPath}. Review the stored
-              result, verify duplicates, and build a cleanup preview from approved sources.
-            </p>
-          </div>
-
-          {browseableScan && resolvedExplorerPath ? (
-            <div className="explorer-grid">
-              <section className="result-card explorer-card">
-                <div className="explorer-header">
-                  <div>
-                    <h3>Results explorer</h3>
-                    <p className="explorer-note">
-                      The current folder view is read-only, reflects the stored scan result
-                      without rescanning, and shows each row's share of the current level.
-                    </p>
-                  </div>
-                  <div className="sort-controls" aria-label="Sort controls">
-                    <button
-                      type="button"
-                      className={`secondary-button ${explorerSortMode === "size" ? "is-active" : ""}`}
-                      onClick={() => setExplorerSortMode("size")}
-                    >
-                      Sort by size
-                    </button>
-                    <button
-                      type="button"
-                      className={`secondary-button ${explorerSortMode === "name" ? "is-active" : ""}`}
-                      onClick={() => setExplorerSortMode("name")}
-                    >
-                      Sort by name
-                    </button>
-                  </div>
-                </div>
-
-                <div className="breadcrumbs" aria-label="Current folder breadcrumbs">
-                  {explorerBreadcrumbs.map((breadcrumb, index) => (
-                    <span className="breadcrumb-segment" key={breadcrumb.path}>
-                      {index > 0 ? <span className="breadcrumb-divider">\</span> : null}
+                    <div className="explorer-toolbar">
+                      <div>
+                        <span className="status-label">Current location</span>
+                        <p className="current-path">{resolvedExplorerPath}</p>
+                      </div>
                       <button
                         type="button"
-                        className="breadcrumb-button"
-                        onClick={() => handleBrowsePath(breadcrumb.path)}
+                        className="primary-button"
+                        onClick={() => void handleOpenInExplorer(resolvedExplorerPath)}
                       >
-                        {breadcrumb.label}
+                        Open current path in Explorer
                       </button>
-                    </span>
-                  ))}
-                </div>
+                    </div>
 
-                <div className="explorer-toolbar">
-                  <div>
-                    <span className="status-label">Current location</span>
-                    <p className="current-path">{resolvedExplorerPath}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => void handleOpenInExplorer(resolvedExplorerPath)}
-                  >
-                    Open current path in Explorer
-                  </button>
-                </div>
-
-                {visibleEntries.length === 0 ? (
-                  <p className="empty-state">
-                    This folder has no immediate children in the stored scan result.
-                  </p>
-                ) : (
-                  <table className="results-table" aria-label="Current folder contents">
-                    <thead>
-                      <tr>
-                        <th scope="col">Name</th>
-                        <th scope="col">Type</th>
-                        <th scope="col">Size</th>
-                        <th scope="col">Usage</th>
-                        <th scope="col">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleEntries.map((entry) => {
-                        const label = getPathLabel(entry.path);
-                        const widthPercent =
-                          currentLevelTotal === 0
-                            ? 0
-                            : Math.max((entry.sizeBytes / currentLevelTotal) * 100, 6);
-                        const sharePercent =
-                          currentLevelTotal === 0
-                            ? 0
-                            : Math.round((entry.sizeBytes / currentLevelTotal) * 100);
-
-                        return (
-                          <tr key={entry.path}>
-                            <td>
-                              <strong>{label}</strong>
-                            </td>
-                            <td className="entry-kind">{entry.kind}</td>
-                            <td>{formatBytes(entry.sizeBytes)}</td>
-                            <td>
-                              <div className="usage-cell">
-                                <div className="usage-track" aria-hidden="true">
-                                  <div
-                                    className="usage-bar"
-                                    style={{ width: `${Math.min(widthPercent, 100)}%` }}
-                                  />
-                                </div>
-                                <span className="usage-label">{sharePercent}% of current level</span>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="table-actions">
-                                {entry.kind === "directory" ? (
-                                  <button
-                                    type="button"
-                                    className="secondary-button"
-                                    aria-label={`Browse ${label}`}
-                                    onClick={() => handleBrowsePath(entry.path)}
-                                  >
-                                    Browse folder
-                                  </button>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  className="secondary-button"
-                                  aria-label={`Open ${label} in Explorer`}
-                                  onClick={() => void handleOpenInExplorer(entry.path)}
-                                >
-                                  Open in Explorer
-                                </button>
-                              </div>
-                            </td>
+                    {visibleEntries.length === 0 ? (
+                      <p className="empty-state">
+                        This folder has no immediate children in the stored scan result.
+                      </p>
+                    ) : (
+                      <table className="results-table" aria-label="Current folder contents">
+                        <thead>
+                          <tr>
+                            <th scope="col">Name</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Size</th>
+                            <th scope="col">Usage</th>
+                            <th scope="col">Actions</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody>
+                          {visibleEntries.map((entry) => {
+                            const label = getPathLabel(entry.path);
+                            const widthPercent =
+                              currentLevelTotal === 0
+                                ? 0
+                                : Math.max((entry.sizeBytes / currentLevelTotal) * 100, 6);
+                            const sharePercent =
+                              currentLevelTotal === 0
+                                ? 0
+                                : Math.round((entry.sizeBytes / currentLevelTotal) * 100);
+
+                            return (
+                              <tr key={entry.path}>
+                                <td>
+                                  <strong>{label}</strong>
+                                </td>
+                                <td className="entry-kind">{entry.kind}</td>
+                                <td>{formatBytes(entry.sizeBytes)}</td>
+                                <td>
+                                  <div className="usage-cell">
+                                    <div className="usage-track" aria-hidden="true">
+                                      <div
+                                        className="usage-bar"
+                                        style={{ width: `${Math.min(widthPercent, 100)}%` }}
+                                      />
+                                    </div>
+                                    <span className="usage-label">
+                                      {sharePercent}% of current level
+                                    </span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <div className="table-actions">
+                                    {entry.kind === "directory" ? (
+                                      <button
+                                        type="button"
+                                        className="secondary-button"
+                                        aria-label={`Browse ${label}`}
+                                        onClick={() => handleBrowsePath(entry.path)}
+                                      >
+                                        Browse folder
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      className="secondary-button"
+                                      aria-label={`Open ${label} in Explorer`}
+                                      onClick={() => void handleOpenInExplorer(entry.path)}
+                                    >
+                                      Open in Explorer
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </section>
+                </div>
+              ) : (
+                <p className="notice-banner compatibility-note">
+                  This saved result was saved before folder browsing support. Run a fresh
+                  scan to browse folders again.
+                </p>
+              )}
+            </section>
+
+            <div className="results-columns">
+              {!browseableScan ? (
+                <section className="result-card">
+                  <h3>Largest files</h3>
+                  <ul>
+                    {currentScan.largestFiles.map((item) => (
+                      <li key={item.path}>
+                        <span>{item.path}</span>
+                        <strong>{formatBytes(item.sizeBytes)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              {!browseableScan ? (
+                <section className="result-card">
+                  <h3>Largest directories</h3>
+                  <ul>
+                    {currentScan.largestDirectories.map((item) => (
+                      <li key={item.path}>
+                        <span>{item.path}</span>
+                        <strong>{formatBytes(item.sizeBytes)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              <section className="result-card">
+                <h3>Skipped paths</h3>
+                {currentScan.skippedPaths.length === 0 ? (
+                  <p className="empty-state">No skipped paths were recorded for this scan.</p>
+                ) : (
+                  <ul>
+                    {currentScan.skippedPaths.map((item) => (
+                      <li key={`${item.path}-${item.reasonCode}`}>
+                        <span>{item.path}</span>
+                        <strong>{item.reasonCode}</strong>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </section>
             </div>
-          ) : (
-            <p className="notice-banner compatibility-note">
-              This saved result was saved before folder browsing support. Run a fresh scan to
-              browse folders again.
+          </>
+        ) : (
+          <section className="result-card">
+            <p className="empty-state">
+              Start a scan or reopen a stored result to populate Explorer.
             </p>
-          )}
-
-          <section className="result-card duplicate-card">
-            <div className="panel-header compact-header">
-              <h3>Duplicate analysis</h3>
-              <p>
-                Fully verified groups require a size match plus content verification. Cleanup
-                stays separate until you explicitly build a cleanup preview.
-              </p>
-            </div>
-
-            {!duplicateEligible ? (
-              <p className="notice-banner duplicate-note">
-                A fresh scan is required before duplicate analysis because this saved result
-                does not include file-entry data.
-              </p>
-            ) : (
-              <div className="duplicate-layout">
-                <div className="duplicate-toolbar">
-                  <div>
-                    <span className="status-label">Analysis state</span>
-                    <p className="current-path">{duplicateStatus.state}</p>
-                  </div>
-                  <div className="action-row">
-                    <button
-                      type="button"
-                      className="primary-button"
-                      onClick={() => void handleStartDuplicateAnalysis()}
-                      disabled={duplicateStatus.state === "running"}
-                    >
-                      Analyze duplicates
-                    </button>
-                    {duplicateStatus.state === "running" ? (
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() => void handleCancelDuplicateAnalysis()}
-                      >
-                        Cancel analysis
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
-                {duplicateStatus.state === "running" ? (
-                  <div className="duplicate-progress" aria-live="polite">
-                    <span>{getDuplicateStageLabel(duplicateStatus.stage)}</span>
-                    <strong>{duplicateStatus.itemsProcessed} items processed</strong>
-                  </div>
-                ) : null}
-
-                {duplicateAnalysis ? (
-                  <>
-                    <div className="duplicate-summary-grid">
-                      <article className="summary-card">
-                        <span>Duplicate groups</span>
-                        <strong>{duplicateAnalysis.groups.length} duplicate groups</strong>
-                      </article>
-                      <article className="summary-card">
-                        <span>Marked for later deletion</span>
-                        <strong>
-                          {duplicatePreview.filesMarkedForDeletion} files marked for later deletion
-                        </strong>
-                      </article>
-                      <article className="summary-card">
-                        <span>Reclaimable bytes</span>
-                        <strong>{formatBytes(duplicatePreview.reclaimableBytes)}</strong>
-                      </article>
-                    </div>
-
-                    {duplicateAnalysis.groups.length === 0 ? (
-                      <p className="empty-state">
-                        No fully verified duplicate groups remain in this scan result.
-                      </p>
-                    ) : (
-                      <div className="duplicate-groups" role="list" aria-label="Duplicate groups">
-                        {orderedDuplicateGroups.map((group) => {
-                          const keptPath = resolveKeptPath(group, duplicateKeepSelections);
-                          const newestPath = chooseMemberByAge(group.members, "newest");
-                          const oldestPath = chooseMemberByAge(group.members, "oldest");
-                          const isExpanded = Boolean(expandedDuplicateGroups[group.groupId]);
-                          const membersRegionId = `duplicate-members-${group.groupId}`;
-
-                          return (
-                            <article
-                              className="duplicate-group"
-                              key={group.groupId}
-                              data-testid={`duplicate-group-${group.groupId}`}
-                              role="listitem"
-                            >
-                              <div className="duplicate-group-header">
-                                <div className="duplicate-group-summary">
-                                  <h4>{group.members.length} verified copies</h4>
-                                  <p>
-                                    {formatBytes(group.sizeBytes)} each and{" "}
-                                    {formatBytes(group.reclaimableBytes)} maximum reclaimable
-                                  </p>
-                                </div>
-                                <div className="duplicate-actions">
-                                  <button
-                                    type="button"
-                                    className="secondary-button"
-                                    aria-expanded={isExpanded}
-                                    aria-controls={membersRegionId}
-                                    onClick={() => handleToggleDuplicateGroup(group.groupId)}
-                                  >
-                                    {isExpanded ? "Hide details" : "Show details"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={`secondary-button ${keptPath === newestPath ? "is-active" : ""}`}
-                                    aria-pressed={keptPath === newestPath}
-                                    onClick={() => handleSelectKeepPath(group, newestPath)}
-                                  >
-                                    Keep newest
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={`secondary-button ${keptPath === oldestPath ? "is-active" : ""}`}
-                                    aria-pressed={keptPath === oldestPath}
-                                    onClick={() => handleSelectKeepPath(group, oldestPath)}
-                                  >
-                                    Keep oldest
-                                  </button>
-                                </div>
-                              </div>
-
-                              {isExpanded ? (
-                                <div
-                                  className="duplicate-members"
-                                  id={membersRegionId}
-                                  role="list"
-                                >
-                                  {group.members.map((member) => {
-                                    const label = getPathLabel(member.path);
-                                    const locationLabel = getDuplicateMemberLocationLabel(
-                                      member.path,
-                                      duplicateAnalysis.rootPath,
-                                    );
-                                    const isKept = member.path === keptPath;
-
-                                    return (
-                                      <article
-                                        className="duplicate-member"
-                                        key={member.path}
-                                        role="listitem"
-                                        title={member.path}
-                                      >
-                                        <div className="duplicate-member-meta">
-                                          <strong>{label}</strong>
-                                          <span className="duplicate-member-location">
-                                            {locationLabel}
-                                          </span>
-                                          <span>{formatTimestamp(member.modifiedAt)}</span>
-                                          <span>{formatBytes(member.sizeBytes)}</span>
-                                        </div>
-                                        <div className="duplicate-member-actions">
-                                          <button
-                                            type="button"
-                                            className={`selection-pill selection-toggle ${isKept ? "is-kept" : "is-delete"}`}
-                                            aria-label={`${isKept ? "Kept copy" : "Delete candidate"} for ${label}`}
-                                            aria-pressed={isKept}
-                                            onClick={() => handleSelectKeepPath(group, member.path)}
-                                          >
-                                            {isKept ? "Kept copy" : "Delete candidate"}
-                                          </button>
-                                        </div>
-                                      </article>
-                                    );
-                                  })}
-                                </div>
-                              ) : null}
-                            </article>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {duplicateAnalysis.issues.length > 0 ? (
-                      <section className="duplicate-issues">
-                        <h4>Excluded paths</h4>
-                        <ul>
-                          {duplicateAnalysis.issues.map((issue) => (
-                            <li key={`${issue.path}-${issue.code}`}>
-                              <span>{issue.path}</span>
-                              <strong>{issue.summary}</strong>
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
-                    ) : null}
-                  </>
-                ) : duplicateStatus.state === "cancelled" && duplicateStatus.message ? (
-                  <p className="notice-banner">{duplicateStatus.message}</p>
-                ) : duplicateStatus.state === "failed" && duplicateStatus.message ? (
-                  <p className="error-banner">{duplicateStatus.message}</p>
-                ) : (
-                  <p className="empty-state">
-                    Run duplicate analysis to verify groups from the stored scan result.
-                  </p>
-                )}
-              </div>
-            )}
           </section>
+        )}
+      </section>
+    );
+  }
 
-          <section className="result-card cleanup-card">
-            <div className="panel-header compact-header">
-              <h3>Safe cleanup</h3>
-              <p>
-                Build a preview from duplicate delete candidates and the repo-tracked cleanup
-                rules, then execute the default Recycle Bin path only after review.
-              </p>
-            </div>
+  function renderDuplicatesPanel() {
+    return (
+      <section
+        className="panel workspace-panel"
+        role="tabpanel"
+        id="workspace-panel-duplicates"
+        aria-labelledby="workspace-tab-duplicates"
+      >
+        <div className="panel-header">
+          <h2>Duplicates</h2>
+          <p>
+            Run duplicate analysis for the loaded scan, keep review state local, and keep
+            cleanup separate until preview is explicitly requested.
+          </p>
+        </div>
 
-            {privilegedCapability ? (
-              <p className="notice-banner cleanup-capability">{privilegedCapability.message}</p>
-            ) : null}
+        <section className="result-card duplicate-card">
+          <div className="panel-header compact-header">
+            <h3>Duplicate analysis</h3>
+            <p>
+              Fully verified groups require a size match plus content verification.
+              Cleanup stays separate until you explicitly build a cleanup preview.
+            </p>
+          </div>
 
-            {!currentScan ? (
-              <p className="notice-banner">Load a stored scan before cleanup preview.</p>
-            ) : !hasFileEntries(currentScan) ? (
-              <p className="notice-banner">
-                A fresh scan is required before cleanup preview.
-              </p>
-            ) : (
-              <div className="cleanup-layout">
-                <div className="cleanup-source-grid">
-                  <article className="summary-card">
-                    <span>Duplicate delete candidates</span>
-                    <strong>{duplicateDeletePaths.length}</strong>
-                  </article>
-                  <article className="summary-card">
-                    <span>Enabled cleanup rules</span>
-                    <strong>{selectedCleanupRuleIds.length}</strong>
-                  </article>
+          {!currentScan ? (
+            <p className="notice-banner">
+              Load a stored scan before starting duplicate analysis.
+            </p>
+          ) : !duplicateEligible ? (
+            <p className="notice-banner duplicate-note">
+              A fresh scan is required before duplicate analysis because this saved result
+              does not include file-entry data.
+            </p>
+          ) : (
+            <div className="duplicate-layout">
+              <div className="duplicate-toolbar">
+                <div>
+                  <span className="status-label">Analysis state</span>
+                  <p className="current-path">{duplicateStatus.state}</p>
                 </div>
-
-                {cleanupRules.length > 0 ? (
-                  <fieldset className="cleanup-rules">
-                    <legend>Built-in cleanup rules</legend>
-                    {cleanupRules.map((rule) => {
-                      const checked = selectedCleanupRuleIds.includes(rule.ruleId);
-                      const visibleRuleLabel =
-                        rule.ruleId === "temp-folder-files"
-                          ? "Temp folder rule"
-                          : rule.ruleId === "download-partials"
-                            ? "Partial download rule"
-                            : rule.label;
-                      return (
-                        <label className="cleanup-rule-option" key={rule.ruleId}>
-                          <input
-                            type="checkbox"
-                            aria-label={rule.label}
-                            checked={checked}
-                            onChange={() => handleToggleCleanupRule(rule.ruleId)}
-                          />
-                          <span>
-                            <strong>{visibleRuleLabel}</strong>
-                            <small>{rule.description}</small>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </fieldset>
-                ) : (
-                  <p className="empty-state">No cleanup rules are available in this build.</p>
-                )}
-
                 <div className="action-row">
                   <button
                     type="button"
                     className="primary-button"
-                    onClick={() => void handleRefreshCleanupPreview()}
+                    onClick={() => void handleStartDuplicateAnalysis()}
+                    disabled={duplicateStatus.state === "running"}
                   >
-                    Refresh cleanup preview
+                    Analyze duplicates
                   </button>
+                  {duplicateStatus.state === "running" ? (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => void handleCancelDuplicateAnalysis()}
+                    >
+                      Cancel analysis
+                    </button>
+                  ) : null}
                 </div>
+              </div>
 
-                {cleanupPreview ? (
-                  <>
-                    <div className="duplicate-summary-grid">
-                      <article className="summary-card">
-                        <span>Preview</span>
-                        <strong>{cleanupPreview.candidates.length} cleanup candidates</strong>
-                      </article>
-                      <article className="summary-card">
-                        <span>Reclaimable bytes</span>
-                        <strong>{formatBytes(cleanupPreview.totalBytes)}</strong>
-                      </article>
-                      <article className="summary-card">
-                        <span>Sources</span>
-                        <strong>
-                          {cleanupPreview.duplicateCandidateCount} duplicate /{" "}
-                          {cleanupPreview.ruleCandidateCount} rule
-                        </strong>
-                      </article>
-                    </div>
+              {duplicateStatus.state === "running" ? (
+                <div className="duplicate-progress" aria-live="polite">
+                  <span>{getDuplicateStageLabel(duplicateStatus.stage)}</span>
+                  <strong>{duplicateStatus.itemsProcessed} items processed</strong>
+                </div>
+              ) : null}
 
-                    {cleanupPreview.candidates.length === 0 ? (
-                      <p className="empty-state">
-                        No valid cleanup candidates remain after validation.
-                      </p>
-                    ) : (
-                      <div className="cleanup-candidates" role="list" aria-label="Cleanup candidates">
-                        {cleanupPreview.candidates.map((candidate) => (
+              {duplicateAnalysis ? (
+                <>
+                  <div className="duplicate-summary-grid">
+                    <article className="summary-card">
+                      <span>Duplicate groups</span>
+                      <strong>{duplicateAnalysis.groups.length} duplicate groups</strong>
+                    </article>
+                    <article className="summary-card">
+                      <span>Marked for later deletion</span>
+                      <strong>
+                        {duplicatePreview.filesMarkedForDeletion} files marked for later
+                        deletion
+                      </strong>
+                    </article>
+                    <article className="summary-card">
+                      <span>Reclaimable bytes</span>
+                      <strong>{formatBytes(duplicatePreview.reclaimableBytes)}</strong>
+                    </article>
+                  </div>
+
+                  {duplicateAnalysis.groups.length === 0 ? (
+                    <p className="empty-state">
+                      No fully verified duplicate groups remain in this scan result.
+                    </p>
+                  ) : (
+                    <div className="duplicate-groups" role="list" aria-label="Duplicate groups">
+                      {orderedDuplicateGroups.map((group) => {
+                        const keptPath = resolveKeptPath(group, duplicateKeepSelections);
+                        const newestPath = chooseMemberByAge(group.members, "newest");
+                        const oldestPath = chooseMemberByAge(group.members, "oldest");
+                        const isExpanded = Boolean(expandedDuplicateGroups[group.groupId]);
+                        const membersRegionId = `duplicate-members-${group.groupId}`;
+
+                        return (
                           <article
-                            className="cleanup-candidate"
-                            key={candidate.actionId}
+                            className="duplicate-group"
+                            key={group.groupId}
+                            data-testid={`duplicate-group-${group.groupId}`}
                             role="listitem"
                           >
-                            <div className="cleanup-candidate-meta">
-                              <strong>{candidate.path}</strong>
-                              <span>{formatBytes(candidate.sizeBytes)}</span>
-                            </div>
-                            <div className="cleanup-source-tags">
-                              {candidate.sourceLabels.map((label) => (
-                                <span
-                                  className="selection-pill is-delete"
-                                  key={`${candidate.actionId}-${label}`}
+                            <div className="duplicate-group-header">
+                              <div className="duplicate-group-summary">
+                                <h4>{group.members.length} verified copies</h4>
+                                <p>
+                                  {formatBytes(group.sizeBytes)} each and{" "}
+                                  {formatBytes(group.reclaimableBytes)} maximum reclaimable
+                                </p>
+                              </div>
+                              <div className="duplicate-actions">
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  aria-expanded={isExpanded}
+                                  aria-controls={membersRegionId}
+                                  onClick={() => handleToggleDuplicateGroup(group.groupId)}
                                 >
-                                  {label}
-                                </span>
-                              ))}
+                                  {isExpanded ? "Hide details" : "Show details"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`secondary-button ${keptPath === newestPath ? "is-active" : ""}`}
+                                  aria-pressed={keptPath === newestPath}
+                                  onClick={() => handleSelectKeepPath(group, newestPath)}
+                                >
+                                  Keep newest
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`secondary-button ${keptPath === oldestPath ? "is-active" : ""}`}
+                                  aria-pressed={keptPath === oldestPath}
+                                  onClick={() => handleSelectKeepPath(group, oldestPath)}
+                                >
+                                  Keep oldest
+                                </button>
+                              </div>
                             </div>
+
+                            {isExpanded ? (
+                              <div className="duplicate-members" id={membersRegionId} role="list">
+                                {group.members.map((member) => {
+                                  const label = getPathLabel(member.path);
+                                  const locationLabel = getDuplicateMemberLocationLabel(
+                                    member.path,
+                                    duplicateAnalysis.rootPath,
+                                  );
+                                  const isKept = member.path === keptPath;
+
+                                  return (
+                                    <article
+                                      className="duplicate-member"
+                                      key={member.path}
+                                      role="listitem"
+                                      title={member.path}
+                                    >
+                                      <div className="duplicate-member-meta">
+                                        <strong>{label}</strong>
+                                        <span className="duplicate-member-location">
+                                          {locationLabel}
+                                        </span>
+                                        <span>{formatTimestamp(member.modifiedAt)}</span>
+                                        <span>{formatBytes(member.sizeBytes)}</span>
+                                      </div>
+                                      <div className="duplicate-member-actions">
+                                        <button
+                                          type="button"
+                                          className={`selection-pill selection-toggle ${isKept ? "is-kept" : "is-delete"}`}
+                                          aria-label={`${isKept ? "Kept copy" : "Delete candidate"} for ${label}`}
+                                          aria-pressed={isKept}
+                                          onClick={() => handleSelectKeepPath(group, member.path)}
+                                        >
+                                          {isKept ? "Kept copy" : "Delete candidate"}
+                                        </button>
+                                      </div>
+                                    </article>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
                           </article>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {duplicateAnalysis.issues.length > 0 ? (
+                    <section className="duplicate-issues">
+                      <h4>Excluded paths</h4>
+                      <ul>
+                        {duplicateAnalysis.issues.map((issue) => (
+                          <li key={`${issue.path}-${issue.code}`}>
+                            <span>{issue.path}</span>
+                            <strong>{issue.summary}</strong>
+                          </li>
                         ))}
-                      </div>
-                    )}
+                      </ul>
+                    </section>
+                  ) : null}
+                </>
+              ) : duplicateStatus.state === "cancelled" && duplicateStatus.message ? (
+                <p className="notice-banner">{duplicateStatus.message}</p>
+              ) : duplicateStatus.state === "failed" && duplicateStatus.message ? (
+                <p className="error-banner">{duplicateStatus.message}</p>
+              ) : (
+                <p className="empty-state">
+                  Run duplicate analysis to verify groups from the stored scan result.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+      </section>
+    );
+  }
 
-                    {cleanupPreview.issues.length > 0 ? (
-                      <section className="duplicate-issues">
-                        <h4>Excluded cleanup paths</h4>
-                        <ul>
-                          {cleanupPreview.issues.map((issue) => (
-                            <li key={`${issue.path}-${issue.code}`}>
-                              <span>{issue.path}</span>
-                              <strong>{issue.summary}</strong>
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
-                    ) : null}
+  function renderCleanupPanel() {
+    return (
+      <section
+        className="panel workspace-panel"
+        role="tabpanel"
+        id="workspace-panel-cleanup"
+        aria-labelledby="workspace-tab-cleanup"
+      >
+        <div className="panel-header">
+          <h2>Cleanup</h2>
+          <p>
+            Build a cleanup preview from approved sources, keep Recycle Bin as the
+            default execution path, and preserve the separate confirmation flow for
+            permanent delete.
+          </p>
+        </div>
 
+        <section className="result-card cleanup-card">
+          <div className="panel-header compact-header">
+            <h3>Safe cleanup</h3>
+            <p>
+              Build a preview from duplicate delete candidates and the repo-tracked
+              cleanup rules, then execute the default Recycle Bin path only after
+              review.
+            </p>
+          </div>
+
+          {privilegedCapability ? (
+            <p className="notice-banner cleanup-capability">{privilegedCapability.message}</p>
+          ) : null}
+
+          {!currentScan ? (
+            <p className="notice-banner">Load a stored scan before cleanup preview.</p>
+          ) : !hasFileEntries(currentScan) ? (
+            <p className="notice-banner">
+              A fresh scan is required before cleanup preview.
+            </p>
+          ) : (
+            <div className="cleanup-layout">
+              <div className="cleanup-source-grid">
+                <article className="summary-card">
+                  <span>Duplicate delete candidates</span>
+                  <strong>{duplicateDeletePaths.length}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Enabled cleanup rules</span>
+                  <strong>{selectedCleanupRuleIds.length}</strong>
+                </article>
+              </div>
+
+              {cleanupRules.length > 0 ? (
+                <fieldset className="cleanup-rules">
+                  <legend>Built-in cleanup rules</legend>
+                  {cleanupRules.map((rule) => {
+                    const checked = selectedCleanupRuleIds.includes(rule.ruleId);
+                    const visibleRuleLabel =
+                      rule.ruleId === "temp-folder-files"
+                        ? "Temp folder rule"
+                        : rule.ruleId === "download-partials"
+                          ? "Partial download rule"
+                          : rule.label;
+                    return (
+                      <label className="cleanup-rule-option" key={rule.ruleId}>
+                        <input
+                          type="checkbox"
+                          aria-label={rule.label}
+                          checked={checked}
+                          onChange={() => handleToggleCleanupRule(rule.ruleId)}
+                        />
+                        <span>
+                          <strong>{visibleRuleLabel}</strong>
+                          <small>{rule.description}</small>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </fieldset>
+              ) : (
+                <p className="empty-state">No cleanup rules are available in this build.</p>
+              )}
+
+              <div className="action-row">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void handleRefreshCleanupPreview()}
+                >
+                  Refresh cleanup preview
+                </button>
+              </div>
+
+              {cleanupPreview ? (
+                <>
+                  <div className="duplicate-summary-grid">
+                    <article className="summary-card">
+                      <span>Preview</span>
+                      <strong>{cleanupPreview.candidates.length} cleanup candidates</strong>
+                    </article>
+                    <article className="summary-card">
+                      <span>Reclaimable bytes</span>
+                      <strong>{formatBytes(cleanupPreview.totalBytes)}</strong>
+                    </article>
+                    <article className="summary-card">
+                      <span>Sources</span>
+                      <strong>
+                        {cleanupPreview.duplicateCandidateCount} duplicate /{" "}
+                        {cleanupPreview.ruleCandidateCount} rule
+                      </strong>
+                    </article>
+                  </div>
+
+                  {cleanupPreview.candidates.length === 0 ? (
+                    <p className="empty-state">
+                      No valid cleanup candidates remain after validation.
+                    </p>
+                  ) : (
+                    <div
+                      className="cleanup-candidates"
+                      role="list"
+                      aria-label="Cleanup candidates"
+                    >
+                      {cleanupPreview.candidates.map((candidate) => (
+                        <article
+                          className="cleanup-candidate"
+                          key={candidate.actionId}
+                          role="listitem"
+                        >
+                          <div className="cleanup-candidate-meta">
+                            <strong>{candidate.path}</strong>
+                            <span>{formatBytes(candidate.sizeBytes)}</span>
+                          </div>
+                          <div className="cleanup-source-tags">
+                            {candidate.sourceLabels.map((label) => (
+                              <span
+                                className="selection-pill is-delete"
+                                key={`${candidate.actionId}-${label}`}
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+
+                  {cleanupPreview.issues.length > 0 ? (
+                    <section className="duplicate-issues">
+                      <h4>Excluded cleanup paths</h4>
+                      <ul>
+                        {cleanupPreview.issues.map((issue) => (
+                          <li key={`${issue.path}-${issue.code}`}>
+                            <span>{issue.path}</span>
+                            <strong>{issue.summary}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ) : null}
+
+                  <div className="action-row cleanup-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => void handleExecuteCleanup("recycle")}
+                      disabled={cleanupPreview.candidates.length === 0}
+                    >
+                      Move selected files to Recycle Bin
+                    </button>
+                  </div>
+
+                  <label className="cleanup-rule-option advanced-toggle">
+                    <input
+                      type="checkbox"
+                      checked={permanentDeleteConfirmed}
+                      onChange={(event) => setPermanentDeleteConfirmed(event.target.checked)}
+                    />
+                    <span>
+                      <strong>I understand permanent delete cannot be undone</strong>
+                      <small>Use only when the Recycle Bin path is not appropriate.</small>
+                    </span>
+                  </label>
+
+                  {permanentDeleteConfirmed ? (
                     <div className="action-row cleanup-actions">
                       <button
                         type="button"
-                        className="primary-button"
-                        onClick={() => void handleExecuteCleanup("recycle")}
+                        className="secondary-button danger-button"
+                        onClick={() => void handleExecuteCleanup("permanent")}
                         disabled={cleanupPreview.candidates.length === 0}
                       >
-                        Move selected files to Recycle Bin
+                        Permanently delete selected files
                       </button>
                     </div>
-
-                    <label className="cleanup-rule-option advanced-toggle">
-                      <input
-                        type="checkbox"
-                        checked={permanentDeleteConfirmed}
-                        onChange={(event) => setPermanentDeleteConfirmed(event.target.checked)}
-                      />
-                      <span>
-                        <strong>I understand permanent delete cannot be undone</strong>
-                        <small>Use only when the Recycle Bin path is not appropriate.</small>
-                      </span>
-                    </label>
-
-                    {permanentDeleteConfirmed ? (
-                      <div className="action-row cleanup-actions">
-                        <button
-                          type="button"
-                          className="secondary-button danger-button"
-                          onClick={() => void handleExecuteCleanup("permanent")}
-                          disabled={cleanupPreview.candidates.length === 0}
-                        >
-                          Permanently delete selected files
-                        </button>
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="empty-state">
-                    Enable one or more cleanup sources, then refresh the preview.
-                  </p>
-                )}
-
-                {cleanupExecutionResult ? (
-                  <section className="cleanup-result">
-                    <h4>Cleanup completed</h4>
-                    <p>A fresh scan is recommended because the stored scan result may now be stale.</p>
-                    <div className="duplicate-summary-grid">
-                      <article className="summary-card">
-                        <span>Completed</span>
-                        <strong>{cleanupExecutionResult.completedCount}</strong>
-                      </article>
-                      <article className="summary-card">
-                        <span>Failed</span>
-                        <strong>{cleanupExecutionResult.failedCount}</strong>
-                      </article>
-                      <article className="summary-card">
-                        <span>Mode</span>
-                        <strong>{cleanupExecutionResult.mode}</strong>
-                      </article>
-                    </div>
-                    <ul className="cleanup-result-list">
-                      {cleanupExecutionResult.entries.map((entry) => (
-                        <li key={`${entry.actionId}-${entry.path}`}>
-                          <span>{entry.path}</span>
-                          <strong>{entry.summary}</strong>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-              </div>
-            )}
-          </section>
-
-          <div className="results-columns">
-            {!browseableScan ? (
-              <section className="result-card">
-                <h3>Largest files</h3>
-                <ul>
-                  {currentScan.largestFiles.map((item) => (
-                    <li key={item.path}>
-                      <span>{item.path}</span>
-                      <strong>{formatBytes(item.sizeBytes)}</strong>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-
-            {!browseableScan ? (
-              <section className="result-card">
-                <h3>Largest directories</h3>
-                <ul>
-                  {currentScan.largestDirectories.map((item) => (
-                    <li key={item.path}>
-                      <span>{item.path}</span>
-                      <strong>{formatBytes(item.sizeBytes)}</strong>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-
-            <section className="result-card">
-              <h3>Skipped paths</h3>
-              {currentScan.skippedPaths.length === 0 ? (
-                <p className="empty-state">No skipped paths were recorded for this scan.</p>
+                  ) : null}
+                </>
               ) : (
-                <ul>
-                  {currentScan.skippedPaths.map((item) => (
-                    <li key={`${item.path}-${item.reasonCode}`}>
-                      <span>{item.path}</span>
-                      <strong>{item.reasonCode}</strong>
-                    </li>
-                  ))}
-                </ul>
+                <p className="empty-state">
+                  Enable one or more cleanup sources, then refresh the preview.
+                </p>
               )}
-            </section>
+
+              {cleanupExecutionResult ? (
+                <section className="cleanup-result">
+                  <h4>Cleanup completed</h4>
+                  <p>
+                    A fresh scan is recommended because the stored scan result may now be
+                    stale.
+                  </p>
+                  <div className="duplicate-summary-grid">
+                    <article className="summary-card">
+                      <span>Completed</span>
+                      <strong>{cleanupExecutionResult.completedCount}</strong>
+                    </article>
+                    <article className="summary-card">
+                      <span>Failed</span>
+                      <strong>{cleanupExecutionResult.failedCount}</strong>
+                    </article>
+                    <article className="summary-card">
+                      <span>Mode</span>
+                      <strong>{cleanupExecutionResult.mode}</strong>
+                    </article>
+                  </div>
+                  <ul className="cleanup-result-list">
+                    {cleanupExecutionResult.entries.map((entry) => (
+                      <li key={`${entry.actionId}-${entry.path}`}>
+                        <span>{entry.path}</span>
+                        <strong>{entry.summary}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
+          )}
+        </section>
+      </section>
+    );
+  }
+
+  function renderSafetyPanel() {
+    return (
+      <section
+        className="panel workspace-panel"
+        role="tabpanel"
+        id="workspace-panel-safety"
+        aria-labelledby="workspace-tab-safety"
+      >
+        <div className="panel-header">
+          <h2>Safety</h2>
+          <p>
+            Space Sift stays local-only, review-first, and unprivileged by default even
+            when cleanup flows are available.
+          </p>
+        </div>
+
+        <section className="result-card">
+          <div className="panel-header compact-header">
+            <h3>Safety model</h3>
+            <p>Review-first cleanup stays local, explicit, and unprivileged by default.</p>
+          </div>
+          <div className="safety-grid">
+            {safetyPrinciples.map((principle) => (
+              <article className="principle-card" key={principle.title}>
+                <h3>{principle.title}</h3>
+                <p>{principle.body}</p>
+              </article>
+            ))}
           </div>
         </section>
-      ) : (
-        <section className="panel">
-          <p className="empty-state">
-            Start a scan or reopen a stored result to populate the current view.
-          </p>
-        </section>
-      )}
+      </section>
+    );
+  }
+
+  function renderActiveWorkspacePanel() {
+    switch (activeWorkspace) {
+      case "scan":
+        return renderScanPanel();
+      case "history":
+        return renderHistoryPanel();
+      case "explorer":
+        return renderExplorerPanel();
+      case "duplicates":
+        return renderDuplicatesPanel();
+      case "cleanup":
+        return renderCleanupPanel();
+      case "safety":
+        return renderSafetyPanel();
+      case "overview":
+      default:
+        return renderOverviewPanel();
+    }
+  }
+
+  return (
+    <main className="shell">
+      <section className="hero">
+        <div className="eyebrow">Windows 11 results explorer, duplicates, and cleanup preview</div>
+        <h1>Space Sift</h1>
+        <p className="lede">
+          Scan a folder or drive, surface the largest space consumers, verify duplicate
+          files, preview a narrow cleanup set, and delete through a review-first desktop
+          flow instead of blind cleanup.
+        </p>
+        <div className="hero-callouts" aria-label="Current scope">
+          <span>Browseable folder drill-down</span>
+          <span>Verified duplicate groups</span>
+          <span>Recycle Bin first cleanup</span>
+        </div>
+      </section>
+
+      <section className="panel workspace-status-panel" role="region" aria-label="Global status">
+        <div className="workspace-status-layout">
+          <div className="workspace-status-copy">
+            <span className="status-label">Global status</span>
+            <h2>{globalStatus.primaryStateLabel}</h2>
+            <p className="current-path">{globalStatus.contextLabel}</p>
+          </div>
+
+          <div className="workspace-status-summary">
+            <article className="summary-card">
+              <span>Summary</span>
+              <strong>{globalStatus.summaryLabel ?? "No additional summary yet."}</strong>
+            </article>
+            <article className="summary-card">
+              <span>Active workspace</span>
+              <strong>{activeWorkspaceDefinition.label}</strong>
+              <p className="current-path">{activeWorkspaceDefinition.description}</p>
+            </article>
+          </div>
+
+          <div className="workspace-status-action">
+            {nextSafeAction ? (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => activateWorkspace(nextSafeAction.target)}
+              >
+                {nextSafeAction.label}
+              </button>
+            ) : (
+              <p className="empty-state">{globalStatus.noActionLabel}</p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {shellNotices.map((message) => (
+        <p className="notice-banner shell-banner" key={message}>
+          {message}
+        </p>
+      ))}
+      {errorMessage ? <p className="error-banner shell-banner">{errorMessage}</p> : null}
+
+      <section className="panel workspace-nav-panel">
+        <div className="panel-header compact-header">
+          <h2>Workspaces</h2>
+          <p>Exactly one workspace stays active at a time; manual tab selection never starts backend work by itself.</p>
+        </div>
+
+        <div className="workspace-tablist" role="tablist" aria-label="Workspace navigation">
+          {workspaceDefinitions.map((definition) => {
+            const isSelected = activeWorkspace === definition.value;
+
+            return (
+              <button
+                key={definition.value}
+                ref={(element) => setWorkspaceTabRef(definition.value, element)}
+                type="button"
+                id={`workspace-tab-${definition.value}`}
+                role="tab"
+                aria-label={definition.label}
+                aria-selected={isSelected}
+                aria-controls={`workspace-panel-${definition.value}`}
+                className={`workspace-tab ${isSelected ? "is-active" : ""}`}
+                onClick={() => activateWorkspace(definition.value)}
+                onKeyDown={(event) => handleWorkspaceKeyDown(event, definition.value)}
+              >
+                <span className="workspace-tab-label">{definition.label}</span>
+                <span className="workspace-tab-description">{definition.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {renderActiveWorkspacePanel()}
 
       <section className="footer-note">
         <p>

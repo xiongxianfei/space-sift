@@ -299,7 +299,7 @@ them.
 - [x] Test spec created
 - [x] Plan reviewed
 - [x] M1 complete
-- [ ] M2 complete
+- [x] M2 complete
 - [ ] M3 complete
 - [ ] M4 complete
 - [ ] Branch-wide verification complete
@@ -313,6 +313,7 @@ them.
 - 2026-04-22: The visible global-status contract is atomic in `M2`; `M4` only hardens workflow-specific edge cases and observability around that already-visible shell behavior.
 - 2026-04-22: `M1` persists only the approved minimal restore-context record: `schema_version`, `last_workspace`, `last_opened_scan_id`, and `updated_at`.
 - 2026-04-22: Invalid or unsupported restore-context rows are treated as `no restore context` at the storage and shell-command boundary instead of surfacing a fatal startup dependency.
+- 2026-04-22: `M2` keeps contractual auto-switch behavior out of scope; explicit history reopen and scan-completion flows still require manual `Explorer` navigation until `M3` implements `N2` and `N3`.
 
 ## Surprises and discoveries
 
@@ -320,6 +321,8 @@ them.
 - The current app already clears cleanup state when a different scan or duplicate result is opened, which supports the approved scan-scoped cleanup-status rule.
 - `CleanupExecutionResult` does not include `scanId`, so the shell must pair execution status with the originating scan or invalidate it on scan change.
 - Because `M1` extended the shared TypeScript client interface, existing workflow test doubles had to grow no-op restore-context methods before `npm run build` would pass.
+- `M2` split the UI into real workspaces, so the existing workflow suites had to activate `Scan`, `History`, `Explorer`, `Duplicates`, or `Cleanup` explicitly instead of assuming a stacked single-page render.
+- The new shell-level global status copies some workflow summary text, so existing duplicate and cleanup assertions needed panel-scoped queries to avoid matching the shell summary instead of the feature panel.
 
 ## Validation notes
 
@@ -338,15 +341,25 @@ them.
 - Follow-up review resolution:
   - tracked the proposal, spec, test spec, architecture note, and project map that this active plan cites as source artifacts
   - added a direct restore-context compatibility regression test for missing or cleared storage
+- `npm run test -- src/workspace-navigation.test.tsx`
+  - passed: `15 passed; 0 failed`
+- `npm run lint`
+  - passed
+- `npm run test`
+  - passed: `7 files, 52 tests`
+- `npm run build`
+  - passed
 
 ## Outcome and retrospective
 
 - `M1` is complete. The app now has an additive local SQLite-backed restore-context seam, two shell commands, matching TypeScript client/types, and targeted Rust tests for persistence and shell command behavior.
 - This milestone leaves the visible workspace shell, startup resolver, and auto-switch behavior unchanged. Those contracts remain for `M2` and `M3`.
 - The coordinated active UI plans remain unchanged by `M1`; this slice only extends the persistence and client boundary needed by the later shell milestones.
+- `M2` is complete. The app now exposes an accessible tabbed workspace shell, a shell-owned `GlobalStatusModel`, deterministic next-safe-action selection, and a focused shell-contract suite in `src/workspace-navigation.test.tsx`.
+- `M2` also updated the existing workflow suites so they exercise the new workspace shell explicitly without pulling `M3` auto-switch behavior forward.
 
 ## Readiness
 
-This plan is `active`. `M1` is complete and ready for `code-review`. `M2`
-remains the next implementation milestone, and it still depends on the focused
-`src/workspace-navigation.test.tsx` shell test file from the approved test spec.
+This plan is `active`. `M1` and `M2` are complete, and the current milestone
+slice is ready for `code-review`. `M3` remains the next implementation
+milestone.
