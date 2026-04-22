@@ -335,6 +335,9 @@ them.
   - rerun after updating the mocks passed
 - `git diff --check -- src-tauri/crates/app-db/Cargo.toml src-tauri/crates/app-db/src/lib.rs src-tauri/src/commands/shell.rs src-tauri/src/lib.rs src/lib/spaceSiftTypes.ts src/lib/spaceSiftClient.ts src/lib/tauriSpaceSiftClient.ts src/App.test.tsx src/cleanup.test.tsx src/duplicates.test.tsx src/results-explorer.test.tsx src/scan-history.test.tsx`
   - passed with only CRLF conversion warnings
+- Follow-up review resolution:
+  - tracked the proposal, spec, test spec, architecture note, and project map that this active plan cites as source artifacts
+  - added a direct restore-context compatibility regression test for missing or cleared storage
 
 ## Outcome and retrospective
 

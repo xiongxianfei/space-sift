@@ -4097,4 +4097,39 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn workspace_restore_context_returns_none_when_storage_is_missing_or_cleared() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&["2026-04-22T10:00:00Z"]),
+        );
+
+        assert_eq!(
+            store
+                .load_workspace_restore_context()
+                .expect("missing restore context should load as none"),
+            None
+        );
+
+        store
+            .save_workspace_restore_context(&WorkspaceRestoreContextInput {
+                last_workspace: "explorer".to_string(),
+                last_opened_scan_id: Some("scan-1".to_string()),
+            })
+            .expect("restore context should save");
+
+        let connection = store.open_connection().expect("db connection");
+        connection
+            .execute("DELETE FROM workspace_restore_context;", [])
+            .expect("restore context row should clear");
+
+        assert_eq!(
+            store
+                .load_workspace_restore_context()
+                .expect("cleared restore context should load as none"),
+            None
+        );
+    }
 }
