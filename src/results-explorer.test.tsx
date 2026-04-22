@@ -176,9 +176,15 @@ function createExplorerClient(scan: BrowseableScanFixture, scanId = scan.scanId)
   const client: ExplorerClient = {
     startScan: vi.fn(async () => ({ scanId: "scan-running" })),
     cancelActiveScan: vi.fn(async () => {}),
+    cancelScanRun: vi.fn(async () => {}),
     getScanStatus: vi.fn(async () => makeCompletedStatus(scanId)),
     listScanHistory: vi.fn(async () => [historyEntry]),
     openScanHistory: vi.fn(async () => scan),
+    listScanRuns: vi.fn(async () => []),
+    openScanRun: vi.fn(async () => {
+      throw new Error("no scan run");
+    }),
+    resumeScanRun: vi.fn(async () => ({ runId: "run-resumed" })),
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: "analysis-unused" })),
     cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () => idleDuplicateStatus),

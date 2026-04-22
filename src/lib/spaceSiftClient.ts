@@ -8,17 +8,24 @@ import type {
   DuplicateStatusSnapshot,
   PrivilegedCleanupCapability,
   ScanHistoryEntry,
+  ScanRunDetail,
+  ScanRunSummary,
   ScanStatusSnapshot,
+  StartScanOptions,
 } from "./spaceSiftTypes";
 
 export type Unsubscribe = () => void;
 
 export type SpaceSiftClient = {
-  startScan(rootPath: string): Promise<{ scanId: string }>;
+  startScan(rootPath: string, options?: StartScanOptions): Promise<{ scanId: string }>;
   cancelActiveScan(): Promise<void>;
+  cancelScanRun(runId: string): Promise<void>;
   getScanStatus(): Promise<ScanStatusSnapshot>;
   listScanHistory(): Promise<ScanHistoryEntry[]>;
   openScanHistory(scanId: string): Promise<CompletedScan>;
+  listScanRuns(): Promise<ScanRunSummary[]>;
+  openScanRun(runId: string, page?: number, pageSize?: number): Promise<ScanRunDetail>;
+  resumeScanRun(runId: string): Promise<{ runId: string }>;
   startDuplicateAnalysis(scanId: string): Promise<{ analysisId: string }>;
   cancelDuplicateAnalysis(): Promise<void>;
   getDuplicateAnalysisStatus(): Promise<DuplicateStatusSnapshot>;
@@ -76,6 +83,9 @@ export const unsupportedClient: SpaceSiftClient = {
   async cancelActiveScan() {
     throw new Error("The Space Sift desktop bridge is not connected yet.");
   },
+  async cancelScanRun() {
+    throw new Error("The Space Sift desktop bridge is not connected yet.");
+  },
   async getScanStatus() {
     return idleScanStatus;
   },
@@ -83,6 +93,15 @@ export const unsupportedClient: SpaceSiftClient = {
     return [];
   },
   async openScanHistory() {
+    throw new Error("The Space Sift desktop bridge is not connected yet.");
+  },
+  async listScanRuns() {
+    return [];
+  },
+  async openScanRun() {
+    throw new Error("The Space Sift desktop bridge is not connected yet.");
+  },
+  async resumeScanRun() {
     throw new Error("The Space Sift desktop bridge is not connected yet.");
   },
   async startDuplicateAnalysis() {

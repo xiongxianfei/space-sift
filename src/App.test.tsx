@@ -12,6 +12,9 @@ function createIdleClient(): SpaceSiftClient {
       return { scanId: "scan-idle" };
     },
     async cancelActiveScan() {},
+    async cancelScanRun() {
+      throw new Error("no scan run");
+    },
     async getScanStatus() {
       return {
         scanId: null,
@@ -32,6 +35,15 @@ function createIdleClient(): SpaceSiftClient {
     },
     async openScanHistory() {
       throw new Error("no saved scans");
+    },
+    async listScanRuns() {
+      return [];
+    },
+    async openScanRun() {
+      throw new Error("no scan run");
+    },
+    async resumeScanRun() {
+      throw new Error("no scan run");
     },
     async startDuplicateAnalysis() {
       throw new Error("no duplicate analysis");
@@ -92,5 +104,16 @@ describe("Space Sift milestone 2 shell", () => {
       expect(screen.getAllByText(/recycle bin first/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/local sqlite storage/i)).toBeInTheDocument();
     });
+  });
+
+  it("keeps interrupted-run resume behind an advanced opt-in", async () => {
+    render(<App client={createIdleClient()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /scan workspace/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/advanced scan options/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/enable interrupted-run resume/i)).not.toBeChecked();
   });
 });

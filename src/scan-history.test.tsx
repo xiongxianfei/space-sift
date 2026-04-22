@@ -8,6 +8,7 @@ import {
 import type {
   CompletedScan,
   ScanHistoryEntry,
+  ScanRunSummary,
   ScanStatusSnapshot,
 } from "./lib/spaceSiftTypes";
 
@@ -181,6 +182,80 @@ function makeIdleSnapshot(): ScanStatusSnapshot {
   };
 }
 
+function makeRunSummary(options?: {
+  runId?: string;
+  rootPath?: string;
+  status?: "stale" | "abandoned" | "cancelled" | "failed" | "completed" | "running";
+  hasResume?: boolean;
+  canResume?: boolean;
+  latestSeq?: number;
+  itemsScanned?: number;
+  errorsCount?: number;
+  progressPercent?: number | null;
+  scanRateItemsPerSec?: number;
+}) {
+  const runId = options?.runId ?? "run-1";
+  const rootPath = options?.rootPath ?? "C:\\Users\\xiongxianfei\\Downloads";
+  const status = options?.status ?? "stale";
+  const latestSeq = options?.latestSeq ?? 3;
+  const itemsScanned = options?.itemsScanned ?? 12;
+  const errorsCount = options?.errorsCount ?? 0;
+  const progressPercent = options?.progressPercent ?? 65;
+  const scanRateItemsPerSec = options?.scanRateItemsPerSec ?? 3.5;
+  const snapshot = {
+    runId,
+    seq: latestSeq,
+    snapshotAt: "2026-04-19T10:00:00Z",
+    createdAt: "2026-04-19T10:00:00Z",
+    status,
+    filesDiscovered: 10,
+    directoriesDiscovered: 2,
+    itemsDiscovered: 12,
+    itemsScanned,
+    errorsCount,
+    bytesProcessed: 4096,
+    scanRateItemsPerSec,
+    progressPercent,
+    currentPath: `${rootPath}\\nested`,
+    message: null,
+  };
+
+  const summary: ScanRunSummary = {
+    header: {
+      runId,
+      targetId: rootPath,
+      rootPath,
+      status,
+      startedAt: "2026-04-19T09:55:00Z",
+      lastSnapshotAt: "2026-04-19T10:00:00Z",
+      lastProgressAt: "2026-04-19T09:59:30Z",
+      staleSince: status === "stale" ? "2026-04-19T09:58:00Z" : null,
+      terminalAt: status === "cancelled" || status === "failed" || status === "completed"
+        ? "2026-04-19T10:00:00Z"
+        : null,
+      completedScanId: null,
+      resumedFromRunId: null,
+      createdAt: "2026-04-19T09:55:00Z",
+      updatedAt: "2026-04-19T10:00:00Z",
+      latestSeq,
+      errorCode: null,
+      errorMessage: null,
+    },
+    latestSnapshot: snapshot,
+    snapshotPreview: [snapshot],
+    seq: latestSeq,
+    createdAt: "2026-04-19T09:55:00Z",
+    itemsScanned,
+    errorsCount,
+    progressPercent,
+    scanRateItemsPerSec,
+    hasResume: options?.hasResume ?? false,
+    canResume: options?.canResume ?? false,
+  };
+
+  return summary;
+}
+
 function makeRunningSnapshot(overrides: Partial<ScanStatusSnapshot> = {}): ScanStatusSnapshot {
   return {
     scanId: "scan-running",
@@ -201,6 +276,7 @@ function makeRunningSnapshot(overrides: Partial<ScanStatusSnapshot> = {}): ScanS
 function createMockClient(options?: {
   history?: ScanHistoryEntry[];
   scansById?: Record<string, CompletedScan>;
+  scanRuns?: ScanRunSummary[];
 }) {
   let progressListener: ((snapshot: ScanStatusSnapshot) => void) | null = null;
   const defaultCompletedScan = makeCompletedScan();
@@ -209,10 +285,28 @@ function createMockClient(options?: {
   const scansById = options?.scansById ?? {
     [defaultCompletedScan.scanId]: defaultCompletedScan,
   };
+  let scanRuns = options?.scanRuns ?? [];
 
   const client: SpaceSiftClient = {
     startScan: vi.fn(async () => ({ scanId: "scan-running" })),
     cancelActiveScan: vi.fn(async () => {}),
+    cancelScanRun: vi.fn(async (runId: string) => {
+      scanRuns = scanRuns.map((run) =>
+        run.header.runId === runId
+          ? {
+              ...run,
+              header: {
+                ...run.header,
+                status: "cancelled",
+              },
+              latestSnapshot: {
+                ...run.latestSnapshot,
+                status: "cancelled",
+              },
+            }
+          : run,
+      );
+    }),
     getScanStatus: vi.fn(async () => makeIdleSnapshot()),
     listScanHistory: vi.fn(async () => history),
     openScanHistory: vi.fn(async (scanId: string) => {
@@ -223,6 +317,21 @@ function createMockClient(options?: {
 
       return scan;
     }),
+    listScanRuns: vi.fn(async () => scanRuns),
+    openScanRun: vi.fn(async (runId: string) => {
+      const run = scanRuns.find((entry) => entry.header.runId === runId);
+      if (!run) {
+        throw new Error(`missing run ${runId}`);
+      }
+
+      return {
+        ...run,
+        snapshotPreviewPage: 1,
+        snapshotPreviewPageSize: run.snapshotPreview.length || 1,
+        snapshotPreviewTotal: run.snapshotPreview.length,
+      };
+    }),
+    resumeScanRun: vi.fn(async (runId: string) => ({ runId: `${runId}-child` })),
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: "analysis-unused" })),
     cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () => idleDuplicateStatus),
@@ -290,7 +399,10 @@ describe("Space Sift scan and history flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /start scan/i }));
 
     await waitFor(() => {
-      expect(mock.client.startScan).toHaveBeenCalledWith("C:\\Users\\xiongxianfei\\Downloads");
+      expect(mock.client.startScan).toHaveBeenCalledWith(
+        "C:\\Users\\xiongxianfei\\Downloads",
+        { resumeEnabled: false },
+      );
     });
 
     await act(async () => {
@@ -329,7 +441,9 @@ describe("Space Sift scan and history flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /start scan/i }));
 
     await waitFor(() => {
-      expect(mock.client.startScan).toHaveBeenCalledWith("C:\\Users\\xiongxianfei\\Videos");
+      expect(mock.client.startScan).toHaveBeenCalledWith("C:\\Users\\xiongxianfei\\Videos", {
+        resumeEnabled: false,
+      });
     });
 
     await act(async () => {
@@ -411,7 +525,9 @@ describe("Space Sift scan and history flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /start scan/i }));
 
     await waitFor(() => {
-      expect(mock.client.startScan).toHaveBeenCalledWith("C:\\Users\\xiongxianfei\\Videos");
+      expect(mock.client.startScan).toHaveBeenCalledWith("C:\\Users\\xiongxianfei\\Videos", {
+        resumeEnabled: false,
+      });
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-2");
     });
 
@@ -438,7 +554,10 @@ describe("Space Sift scan and history flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /start scan/i }));
 
     await waitFor(() => {
-      expect(mock.client.startScan).toHaveBeenCalledWith("C:\\Users\\xiongxianfei\\Downloads");
+      expect(mock.client.startScan).toHaveBeenCalledWith(
+        "C:\\Users\\xiongxianfei\\Downloads",
+        { resumeEnabled: false },
+      );
     });
 
     await act(async () => {
@@ -673,5 +792,128 @@ describe("Space Sift scan and history flow", () => {
       expect(mock.client.startScan).toHaveBeenCalledTimes(1);
       expect(screen.getByText(/one scan at a time/i)).toBeInTheDocument();
     });
+  });
+
+  it("keeps resume opt-in off by default and only sends it when advanced mode is enabled", async () => {
+    const firstMock = createMockClient();
+    const { unmount } = render(<App client={firstMock.client} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/scan root/i), {
+      target: { value: "C:\\Users\\xiongxianfei\\Downloads" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /start scan/i }));
+
+    await waitFor(() => {
+      expect(firstMock.client.startScan).toHaveBeenCalledWith(
+        "C:\\Users\\xiongxianfei\\Downloads",
+        { resumeEnabled: false },
+      );
+    });
+
+    unmount();
+
+    const secondMock = createMockClient();
+    render(<App client={secondMock.client} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/scan root/i), {
+      target: { value: "C:\\Users\\xiongxianfei\\Downloads" },
+    });
+    fireEvent.click(screen.getByText(/advanced scan options/i));
+    fireEvent.click(screen.getByLabelText(/enable interrupted-run resume/i));
+    fireEvent.click(screen.getByRole("button", { name: /start scan/i }));
+
+    await waitFor(() => {
+      expect(secondMock.client.startScan).toHaveBeenLastCalledWith(
+        "C:\\Users\\xiongxianfei\\Downloads",
+        { resumeEnabled: true },
+      );
+    });
+  });
+
+  it("shows interrupted runs with explicit resume and cancel actions", async () => {
+    const mock = createMockClient({
+      scanRuns: [
+        makeRunSummary({
+          runId: "run-abandoned",
+          status: "abandoned",
+          hasResume: true,
+          canResume: false,
+          latestSeq: 5,
+        }),
+        makeRunSummary({
+          runId: "run-stale",
+          status: "stale",
+          hasResume: false,
+          canResume: false,
+          latestSeq: 4,
+        }),
+      ],
+    });
+
+    render(<App client={mock.client} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /interrupted runs/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/^abandoned$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^stale$/i)).toBeInTheDocument();
+    const abandonedCard = screen
+      .getByText(/run id: run-abandoned/i)
+      .closest(".history-entry");
+    expect(abandonedCard).not.toBeNull();
+
+    expect(within(abandonedCard as HTMLElement).getByText(/resume unavailable/i)).toBeInTheDocument();
+    expect(within(abandonedCard as HTMLElement).getByText(/created .*2026/i)).toBeInTheDocument();
+    expect(within(abandonedCard as HTMLElement).getByText(/seq 5/i)).toBeInTheDocument();
+    expect(within(abandonedCard as HTMLElement).getByText(/12 items scanned/i)).toBeInTheDocument();
+    expect(within(abandonedCard as HTMLElement).getByText(/^0 errors$/i)).toBeInTheDocument();
+    expect(within(abandonedCard as HTMLElement).getByText(/65% progress/i)).toBeInTheDocument();
+    expect(within(abandonedCard as HTMLElement).getByText(/3\.5 items\/s/i)).toBeInTheDocument();
+
+    const resumeButton = within(abandonedCard as HTMLElement).getByRole("button", {
+      name: /resume run run-abandoned/i,
+    });
+    expect(resumeButton).toBeDisabled();
+    fireEvent.click(resumeButton);
+    expect(mock.client.resumeScanRun).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /cancel run run-stale/i }));
+    await waitFor(() => {
+      expect(mock.client.cancelScanRun).toHaveBeenCalledWith("run-stale");
+    });
+  });
+
+  it("disables resume from canResume when resume metadata exists but the engine is unsupported", async () => {
+    const mock = createMockClient({
+      scanRuns: [
+        makeRunSummary({
+          runId: "run-abandoned",
+          status: "abandoned",
+          hasResume: true,
+          canResume: false,
+          latestSeq: 5,
+        }),
+      ],
+    });
+
+    render(<App client={mock.client} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /interrupted runs/i })).toBeInTheDocument();
+    });
+
+    const resumeButton = screen.getByRole("button", { name: /resume run run-abandoned/i });
+    expect(resumeButton).toBeDisabled();
+    fireEvent.click(resumeButton);
+    expect(mock.client.resumeScanRun).not.toHaveBeenCalled();
   });
 });

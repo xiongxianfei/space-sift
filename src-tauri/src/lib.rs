@@ -25,6 +25,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::scan::start_scan,
+            commands::scan::resume_scan_run,
             commands::scan::cancel_active_scan,
             commands::scan::cancel_scan_run,
             commands::scan::get_scan_status,

@@ -3,11 +3,7 @@
 This file tracks active, blocked, done, and superseded plans.
 
 ## Draft
-- [2026-04-18-scan-run-continuity.md](plans/2026-04-18-scan-run-continuity.md)
-  - status: draft
-  - scope: add additive SQLite-backed scan run continuity, restart recovery,
-    non-live run actions, and gated resume without replacing completed scan
-    history
+- none yet
 
 ## Active
 - [2026-04-16-history-and-duplicate-review-clarity.md](plans/2026-04-16-history-and-duplicate-review-clarity.md)
@@ -25,11 +21,16 @@ This file tracks active, blocked, done, and superseded plans.
   - scope: turn the repository template into the first approved `Space Sift`
     MVP using a Rust core engine, Tauri 2 + React UI, SQLite scan history,
     signed Windows releases, and winget distribution
-
 ## Blocked
-- none yet
+- none currently
 
 ## Done
+- [2026-04-18-scan-run-continuity.md](plans/2026-04-18-scan-run-continuity.md)
+  - status: done
+  - scope: added additive SQLite-backed scan run continuity, restart recovery,
+    non-live run actions, and gated resume without replacing completed scan
+    history, with current resume execution explicitly deferred until engine
+    cursor support exists
 - [2026-04-16-fast-safe-duplicate-analysis.md](plans/2026-04-16-fast-safe-duplicate-analysis.md)
   - status: done
   - scope: defined and implemented a fast, full-hash-correct,

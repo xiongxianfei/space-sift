@@ -6,6 +6,7 @@ use duplicates_core::{
 use scan_core::{
     CompletedScan, ScanHistoryEntry, ScanRunDetail, ScanRunHeader, ScanRunSnapshot,
     ScanRunStatus, ScanRunSummary, DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID,
+    SCAN_RESUME_ENGINE_SUPPORTED,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -26,6 +27,7 @@ const ABANDON_AFTER_SECONDS: i64 = 24 * 60 * 60;
 const RUN_RETENTION_DAYS: i64 = 30;
 const RECONCILE_EVENT_TYPE: &str = "reconciled";
 const CANCEL_EVENT_TYPE: &str = "cancelled";
+const RESUME_REJECTED_EVENT_TYPE: &str = "resume_rejected";
 const PURGE_EVENT_TYPE: &str = "purged";
 const REASON_HEARTBEAT_STALE: &str = "HEARTBEAT_STALE";
 const REASON_RUN_ABANDONED: &str = "RUN_ABANDONED";
@@ -36,6 +38,19 @@ const REASON_RETENTION_EXPIRED: &str = "RETENTION_EXPIRED";
 pub struct PurgedScanRuns {
     pub purged_count: usize,
     pub deleted_run_ids: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ScanRunStartOptions<'a> {
+    pub current_path: Option<&'a str>,
+    pub target_id: Option<&'a str>,
+    pub resumed_from_run_id: Option<&'a str>,
+    pub resume_enabled: bool,
+    pub resume_token: Option<&'a str>,
+    pub resume_expires_at: Option<&'a str>,
+    pub resume_payload_json: Option<&'a str>,
+    pub resume_target_fingerprint_json: Option<&'a str>,
+    pub privacy_scope_id: Option<&'a str>,
 }
 
 impl HistoryStore {
@@ -188,6 +203,24 @@ impl HistoryStore {
         started_at: &str,
         current_path: Option<&str>,
     ) -> Result<ScanRunDetail, HistoryStoreError> {
+        self.record_scan_run_started_with_options(
+            run_id,
+            root_path,
+            started_at,
+            ScanRunStartOptions {
+                current_path,
+                ..ScanRunStartOptions::default()
+            },
+        )
+    }
+
+    pub fn record_scan_run_started_with_options(
+        &self,
+        run_id: &str,
+        root_path: &str,
+        started_at: &str,
+        options: ScanRunStartOptions<'_>,
+    ) -> Result<ScanRunDetail, HistoryStoreError> {
         self.initialize()?;
 
         let created_at = self.now_timestamp();
@@ -222,19 +255,27 @@ impl HistoryStore {
                     updated_at,
                     latest_seq
                 ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL,
-                    NULL, ?8, NULL, NULL, ?9, ?10, 1
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, NULL, ?8, ?9, ?10, ?11, ?12,
+                    ?13, ?14, NULL, NULL, ?15, ?16, 1
                 );
                 "#,
                 rusqlite::params![
                     run_id,
-                    root_path,
+                    options.target_id.unwrap_or(root_path),
                     root_path,
                     scan_run_status_label(&ScanRunStatus::Running),
                     started_at,
                     started_at,
                     started_at,
-                    DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID,
+                    options.resumed_from_run_id,
+                    options.resume_enabled,
+                    options.resume_token,
+                    options.resume_expires_at,
+                    options.resume_payload_json,
+                    options.resume_target_fingerprint_json,
+                    options
+                        .privacy_scope_id
+                        .unwrap_or(DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID),
                     created_at,
                     created_at
                 ],
@@ -266,7 +307,7 @@ impl HistoryStore {
                     started_at,
                     created_at,
                     scan_run_status_label(&ScanRunStatus::Running),
-                    current_path
+                    options.current_path
                 ],
             )
             .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
@@ -408,7 +449,11 @@ impl HistoryStore {
                     error_code = ?7,
                     error_message = ?8,
                     updated_at = ?9,
-                    latest_seq = ?10
+                    latest_seq = ?10,
+                    resume_payload_json = CASE
+                        WHEN resume_enabled = 1 THEN ?11
+                        ELSE resume_payload_json
+                    END
                 WHERE run_id = ?1;
                 "#,
                 rusqlite::params![
@@ -422,7 +467,8 @@ impl HistoryStore {
                     snapshot.message,
                     created_at,
                     i64::try_from(snapshot.seq)
-                        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?
+                        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?,
+                    build_resume_payload_json(snapshot.current_path.as_deref(), snapshot.seq)
                 ],
             )
             .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
@@ -631,6 +677,45 @@ impl HistoryStore {
 
     pub fn open_scan_run(&self, run_id: &str) -> Result<ScanRunDetail, HistoryStoreError> {
         self.open_scan_run_paged(run_id, 1, DEFAULT_SCAN_RUN_PREVIEW_PAGE_SIZE)
+    }
+
+    pub fn record_scan_run_resume_rejection(
+        &self,
+        run_id: &str,
+        reason_code: &str,
+        timestamp: &str,
+    ) -> Result<(), HistoryStoreError> {
+        self.initialize()?;
+        let connection = self.open_connection()?;
+        let event_json = serde_json::to_string(&serde_json::json!({
+            "runId": run_id,
+            "reasonCode": reason_code,
+            "timestamp": timestamp,
+        }))
+        .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+        connection
+            .execute(
+                r#"
+                INSERT INTO scan_run_audit (
+                    run_id,
+                    event_type,
+                    reason_code,
+                    created_at,
+                    event_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5);
+                "#,
+                rusqlite::params![
+                    run_id,
+                    RESUME_REJECTED_EVENT_TYPE,
+                    reason_code,
+                    timestamp,
+                    event_json
+                ],
+            )
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+        Ok(())
     }
 
     pub fn open_scan_run_paged(
@@ -1150,6 +1235,12 @@ fn load_scan_run_detail(
     )?;
     let snapshot_preview_total = count_scan_run_snapshots(connection, run_id)?;
     let (has_resume, can_resume) = scan_run_resume_flags(&header, now);
+    let seq = latest_snapshot.seq;
+    let created_at = header.created_at.clone();
+    let items_scanned = latest_snapshot.items_scanned;
+    let errors_count = latest_snapshot.errors_count;
+    let progress_percent = normalize_scan_run_progress_percent(latest_snapshot.progress_percent);
+    let scan_rate_items_per_sec = latest_snapshot.scan_rate_items_per_sec;
 
     Ok(ScanRunDetail {
         header,
@@ -1158,6 +1249,12 @@ fn load_scan_run_detail(
         snapshot_preview_page,
         snapshot_preview_page_size,
         snapshot_preview_total,
+        seq,
+        created_at,
+        items_scanned,
+        errors_count,
+        progress_percent,
+        scan_rate_items_per_sec,
         has_resume,
         can_resume,
     })
@@ -1306,11 +1403,23 @@ fn load_scan_run_summary(
         DEFAULT_SCAN_RUN_PREVIEW_PAGE_SIZE,
     )?;
     let (has_resume, can_resume) = scan_run_resume_flags(&header, now);
+    let seq = latest_snapshot.seq;
+    let created_at = header.created_at.clone();
+    let items_scanned = latest_snapshot.items_scanned;
+    let errors_count = latest_snapshot.errors_count;
+    let progress_percent = normalize_scan_run_progress_percent(latest_snapshot.progress_percent);
+    let scan_rate_items_per_sec = latest_snapshot.scan_rate_items_per_sec;
 
     Ok(ScanRunSummary {
         header,
         latest_snapshot,
         snapshot_preview,
+        seq,
+        created_at,
+        items_scanned,
+        errors_count,
+        progress_percent,
+        scan_rate_items_per_sec,
         has_resume,
         can_resume,
     })
@@ -1647,13 +1756,27 @@ fn normalize_scan_run_preview_paging(page: u32, page_size: u32) -> (u32, u32) {
 }
 
 fn scan_run_resume_flags(header: &ScanRunHeader, now: &str) -> (bool, bool) {
-    let has_resume = header.resume_token.is_some();
-    let can_resume = has_resume
-        && header.resume_enabled
+    let has_resume = header.resume_enabled
+        && header
+            .resume_token
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+        && header
+            .resume_payload_json
+            .as_deref()
+            .is_some_and(|value| !value.is_empty());
+    let resume_metadata_eligible = has_resume
         && matches!(header.status, ScanRunStatus::Stale | ScanRunStatus::Abandoned)
-        && resume_is_not_expired(header.resume_expires_at.as_deref(), now);
+        && resume_is_not_expired(header.resume_expires_at.as_deref(), now)
+        && resume_privacy_scope_matches(header)
+        && resume_target_fingerprint_matches(header);
+    let can_resume = SCAN_RESUME_ENGINE_SUPPORTED && resume_metadata_eligible;
 
     (has_resume, can_resume)
+}
+
+fn normalize_scan_run_progress_percent(progress_percent: Option<f64>) -> Option<f64> {
+    progress_percent.map(|value| value.clamp(0.0, 100.0))
 }
 
 fn resume_is_not_expired(expires_at: Option<&str>, now: &str) -> bool {
@@ -1664,6 +1787,33 @@ fn resume_is_not_expired(expires_at: Option<&str>, now: &str) -> bool {
         },
         None => true,
     }
+}
+
+fn build_resume_payload_json(current_path: Option<&str>, latest_seq: u64) -> String {
+    serde_json::json!({
+        "currentPath": current_path,
+        "latestSeq": latest_seq,
+    })
+    .to_string()
+}
+
+fn resume_privacy_scope_matches(header: &ScanRunHeader) -> bool {
+    header.privacy_scope_id.as_deref() == Some(DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID)
+}
+
+fn resume_target_fingerprint_matches(header: &ScanRunHeader) -> bool {
+    let Some(stored) = header.resume_target_fingerprint_json.as_deref() else {
+        return false;
+    };
+    let Ok(stored_value) = serde_json::from_str::<serde_json::Value>(stored) else {
+        return false;
+    };
+
+    stored_value
+        == serde_json::json!({
+            "rootPath": header.root_path,
+            "targetId": header.target_id,
+        })
 }
 
 fn reconciliation_transition(
@@ -2652,6 +2802,8 @@ mod tests {
         let fixture = tempdir().expect("db fixture");
         let times = std::sync::Arc::new(std::sync::Mutex::new(vec![
             "2026-04-18T10:00:01Z".to_string(),
+            "2026-04-18T10:00:01Z".to_string(),
+            "2026-04-18T10:00:31Z".to_string(),
             "2026-04-18T10:00:31Z".to_string(),
         ]));
         let clock = std::sync::Arc::clone(&times);
@@ -3044,7 +3196,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_run_purge_preserves_resume_eligible_abandoned_runs() {
+    fn scan_run_purge_removes_abandoned_runs_when_engine_resume_is_unsupported() {
         let fixture = tempdir().expect("db fixture");
         let store = HistoryStore::with_now(
             fixture.path().join("history.db"),
@@ -3090,7 +3242,9 @@ mod tests {
                 UPDATE scan_runs
                 SET resume_enabled = 1,
                     resume_token = 'resume-token',
-                    resume_expires_at = '2026-05-01T00:00:00Z'
+                    resume_expires_at = '2026-05-01T00:00:00Z',
+                    resume_payload_json = '{"currentPath":"C:\\scan-root","latestSeq":2}',
+                    resume_target_fingerprint_json = '{"rootPath":"C:\\scan-root","targetId":"C:\\scan-root"}'
                 WHERE run_id = 'resume-run';
                 "#,
                 [],
@@ -3099,18 +3253,24 @@ mod tests {
 
         let before = store
             .open_scan_run("resume-run")
-            .expect("resume-eligible run should reopen");
-        assert!(before.can_resume);
+            .expect("resume-metadata run should reopen");
+        assert!(before.has_resume);
+        assert!(!before.can_resume);
 
         let purged = store
             .purge_expired_scan_runs()
             .expect("purge should succeed");
 
-        assert_eq!(purged.purged_count, 0);
-        let after = store
-            .open_scan_run("resume-run")
-            .expect("resume-eligible abandoned run should remain");
-        assert!(after.can_resume);
+        assert_eq!(purged.purged_count, 1);
+        assert_eq!(purged.deleted_run_ids, vec!["resume-run".to_string()]);
+        assert_eq!(
+            store
+                .open_scan_run("resume-run")
+                .expect_err("unsupported-engine abandoned run should purge"),
+            HistoryStoreError::NotFound {
+                scan_id: "resume-run".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -3406,5 +3566,228 @@ mod tests {
             .expect("cleanup execution should reopen");
 
         assert_eq!(reopened, expected);
+    }
+
+    #[test]
+    fn scan_run_detail_keeps_abandoned_status_while_still_resumable() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            || "2026-04-19T10:00:00Z".to_string(),
+        );
+
+        store
+            .record_scan_run_started_with_options(
+                "run-1",
+                "C:\\scan-root",
+                "2026-04-19T09:00:00Z",
+                ScanRunStartOptions {
+                    current_path: Some("C:\\scan-root\\nested"),
+                    target_id: Some("C:\\scan-root"),
+                    resume_enabled: true,
+                    resume_token: Some("resume-run-1"),
+                    resume_expires_at: Some("2099-04-20T09:00:00Z"),
+                    resume_payload_json: Some(
+                        "{\"currentPath\":\"C:\\\\scan-root\\\\nested\",\"latestSeq\":2}",
+                    ),
+                    resume_target_fingerprint_json: Some(
+                        "{\"rootPath\":\"C:\\\\scan-root\",\"targetId\":\"C:\\\\scan-root\"}",
+                    ),
+                    privacy_scope_id: Some(DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID),
+                    ..ScanRunStartOptions::default()
+                },
+            )
+            .expect("resume-enabled run should persist");
+        store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "run-1".to_string(),
+                seq: 2,
+                snapshot_at: "2026-04-19T09:05:00Z".to_string(),
+                created_at: "2026-04-19T09:05:00Z".to_string(),
+                status: ScanRunStatus::Abandoned,
+                files_discovered: 3,
+                directories_discovered: 1,
+                items_discovered: 4,
+                items_scanned: 4,
+                errors_count: 0,
+                bytes_processed: 256,
+                scan_rate_items_per_sec: 0.0,
+                progress_percent: Some(50.0),
+                current_path: Some("C:\\scan-root\\nested".to_string()),
+                message: Some("Run marked abandoned during startup reconciliation.".to_string()),
+            })
+            .expect("abandoned snapshot should append");
+
+        let detail = store.open_scan_run("run-1").expect("run should reopen");
+
+        assert_eq!(detail.header.status, ScanRunStatus::Abandoned);
+        assert!(detail.has_resume);
+        assert!(!detail.can_resume);
+        assert_eq!(detail.seq, 2);
+        assert_eq!(detail.created_at, detail.header.created_at);
+        assert_eq!(detail.items_scanned, detail.latest_snapshot.items_scanned);
+        assert_eq!(detail.errors_count, detail.latest_snapshot.errors_count);
+        assert_eq!(detail.progress_percent, detail.latest_snapshot.progress_percent);
+        assert_eq!(
+            detail.scan_rate_items_per_sec,
+            detail.latest_snapshot.scan_rate_items_per_sec
+        );
+    }
+
+    #[test]
+    fn serialized_run_detail_omits_raw_resume_token_fields() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            || "2026-04-19T10:00:00Z".to_string(),
+        );
+
+        store
+            .record_scan_run_started_with_options(
+                "run-1",
+                "C:\\scan-root",
+                "2026-04-19T09:00:00Z",
+                ScanRunStartOptions {
+                    current_path: Some("C:\\scan-root"),
+                    target_id: Some("C:\\scan-root"),
+                    resume_enabled: true,
+                    resume_token: Some("resume-run-1"),
+                    resume_expires_at: Some("2099-04-20T09:00:00Z"),
+                    resume_payload_json: Some(
+                        "{\"currentPath\":\"C:\\\\scan-root\",\"latestSeq\":1}",
+                    ),
+                    resume_target_fingerprint_json: Some(
+                        "{\"rootPath\":\"C:\\\\scan-root\",\"targetId\":\"C:\\\\scan-root\"}",
+                    ),
+                    privacy_scope_id: Some(DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID),
+                    ..ScanRunStartOptions::default()
+                },
+            )
+            .expect("resume-enabled run should persist");
+
+        let detail = store.open_scan_run("run-1").expect("run should reopen");
+        let serialized = serde_json::to_value(&detail).expect("run detail should serialize");
+        let header = serialized
+            .get("header")
+            .expect("serialized run detail should include header");
+
+        assert!(header.get("resumeToken").is_none());
+        assert!(header.get("resumeEnabled").is_none());
+        assert!(header.get("resumeExpiresAt").is_none());
+        assert!(header.get("resumePayloadJson").is_none());
+        assert!(header.get("resumeTargetFingerprintJson").is_none());
+        assert!(header.get("privacyScopeId").is_none());
+        assert_eq!(serialized["hasResume"], true);
+        assert_eq!(serialized["canResume"], false);
+    }
+
+    #[test]
+    fn scan_run_summary_exposes_ui_card_metrics_and_normalized_progress() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&[
+                "2026-04-21T10:00:00Z",
+                "2026-04-21T10:00:01Z",
+                "2026-04-21T10:00:02Z",
+            ]),
+        );
+
+        store
+            .record_scan_run_started(
+                "run-1",
+                "C:\\scan-root",
+                "2026-04-21T09:55:00Z",
+                Some("C:\\scan-root"),
+            )
+            .expect("run should persist");
+        store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "run-1".to_string(),
+                seq: 2,
+                snapshot_at: "2026-04-21T10:00:01Z".to_string(),
+                created_at: "2026-04-21T10:00:01Z".to_string(),
+                status: ScanRunStatus::Stale,
+                files_discovered: 10,
+                directories_discovered: 2,
+                items_discovered: 12,
+                items_scanned: 12,
+                errors_count: 2,
+                bytes_processed: 4096,
+                scan_rate_items_per_sec: 3.5,
+                progress_percent: Some(140.0),
+                current_path: Some("C:\\scan-root\\nested".to_string()),
+                message: None,
+            })
+            .expect("snapshot should append");
+
+        let summary = store
+            .list_scan_runs()
+            .expect("summary list should load")
+            .into_iter()
+            .find(|entry| entry.header.run_id == "run-1")
+            .expect("run summary should exist");
+
+        assert_eq!(summary.seq, 2);
+        assert_eq!(summary.created_at, "2026-04-21T10:00:00Z");
+        assert_eq!(summary.items_scanned, 12);
+        assert_eq!(summary.errors_count, 2);
+        assert_eq!(summary.progress_percent, Some(100.0));
+        assert_eq!(summary.scan_rate_items_per_sec, 3.5);
+    }
+
+    #[test]
+    fn scan_run_with_resume_metadata_reports_can_resume_false_when_engine_unsupported() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            || "2026-04-21T10:00:00Z".to_string(),
+        );
+        store
+            .record_scan_run_started_with_options(
+                "run-1",
+                "C:\\scan-root",
+                "2026-04-21T09:00:00Z",
+                ScanRunStartOptions {
+                    current_path: Some("C:\\scan-root\\nested"),
+                    target_id: Some("C:\\scan-root"),
+                    resumed_from_run_id: None,
+                    resume_enabled: true,
+                    resume_token: Some("resume-run-1"),
+                    resume_expires_at: Some("2099-04-20T09:00:00Z"),
+                    resume_payload_json: Some(
+                        "{\"currentPath\":\"C:\\\\scan-root\\\\nested\",\"latestSeq\":2}",
+                    ),
+                    resume_target_fingerprint_json: Some(
+                        "{\"rootPath\":\"C:\\\\scan-root\",\"targetId\":\"C:\\\\scan-root\"}",
+                    ),
+                    privacy_scope_id: Some(DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID),
+                },
+            )
+            .expect("resume-enabled run should persist");
+        store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "run-1".to_string(),
+                seq: 2,
+                snapshot_at: "2026-04-21T09:05:00Z".to_string(),
+                created_at: "2026-04-21T09:05:00Z".to_string(),
+                status: ScanRunStatus::Abandoned,
+                files_discovered: 10,
+                directories_discovered: 2,
+                items_discovered: 12,
+                items_scanned: 12,
+                errors_count: 0,
+                bytes_processed: 4096,
+                scan_rate_items_per_sec: 3.5,
+                progress_percent: Some(65.0),
+                current_path: Some("C:\\scan-root\\nested".to_string()),
+                message: Some("Run marked abandoned during startup reconciliation.".to_string()),
+            })
+            .expect("abandoned snapshot should append");
+
+        let detail = store.open_scan_run("run-1").expect("run should reopen");
+
+        assert!(detail.has_resume);
+        assert!(!detail.can_resume);
     }
 }

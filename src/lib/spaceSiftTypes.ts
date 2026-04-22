@@ -167,6 +167,75 @@ export type ScanHistoryEntry = {
   totalBytes: number;
 };
 
+export type ScanRunStatus =
+  | "running"
+  | "stale"
+  | "abandoned"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export type ScanRunHeader = {
+  runId: string;
+  targetId: string;
+  rootPath: string;
+  status: ScanRunStatus;
+  startedAt: string;
+  lastSnapshotAt: string;
+  lastProgressAt: string;
+  staleSince: string | null;
+  terminalAt: string | null;
+  completedScanId: string | null;
+  resumedFromRunId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  latestSeq: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+export type ScanRunSnapshot = {
+  runId: string;
+  seq: number;
+  snapshotAt: string;
+  createdAt: string;
+  status: ScanRunStatus;
+  filesDiscovered: number;
+  directoriesDiscovered: number;
+  itemsDiscovered: number;
+  itemsScanned: number;
+  errorsCount: number;
+  bytesProcessed: number;
+  scanRateItemsPerSec: number;
+  progressPercent: number | null;
+  currentPath: string | null;
+  message: string | null;
+};
+
+export type ScanRunSummary = {
+  header: ScanRunHeader;
+  latestSnapshot: ScanRunSnapshot;
+  snapshotPreview: ScanRunSnapshot[];
+  seq: number;
+  createdAt: string;
+  itemsScanned: number;
+  errorsCount: number;
+  progressPercent: number | null;
+  scanRateItemsPerSec: number;
+  hasResume: boolean;
+  canResume: boolean;
+};
+
+export type ScanRunDetail = ScanRunSummary & {
+  snapshotPreviewPage: number;
+  snapshotPreviewPageSize: number;
+  snapshotPreviewTotal: number;
+};
+
+export type StartScanOptions = {
+  resumeEnabled?: boolean;
+};
+
 export type ScanStatusSnapshot = {
   scanId: string | null;
   rootPath: string | null;

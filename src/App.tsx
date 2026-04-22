@@ -26,6 +26,7 @@ import type {
   PrivilegedCleanupCapability,
   ScanEntry,
   ScanHistoryEntry,
+  ScanRunSummary,
   ScanStatusSnapshot,
 } from "./lib/spaceSiftTypes";
 
@@ -97,6 +98,15 @@ function formatElapsedWindow(startedAt: string | null, updatedAt: string | null)
 
 function describeError(error: unknown) {
   if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    typeof error === "object" &&
+    error != null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
     return error.message;
   }
 
@@ -385,6 +395,7 @@ function App({ client = unsupportedClient }: AppProps) {
   const [duplicateStatus, setDuplicateStatus] =
     useState<DuplicateStatusSnapshot>(idleDuplicateStatus);
   const [history, setHistory] = useState<ScanHistoryEntry[]>([]);
+  const [scanRuns, setScanRuns] = useState<ScanRunSummary[]>([]);
   const [currentScan, setCurrentScan] = useState<CompletedScan | null>(null);
   const [currentExplorerPath, setCurrentExplorerPath] = useState<string | null>(null);
   const [explorerSortMode, setExplorerSortMode] = useState<ExplorerSortMode>("size");
@@ -404,6 +415,7 @@ function App({ client = unsupportedClient }: AppProps) {
   const [privilegedCapability, setPrivilegedCapability] =
     useState<PrivilegedCleanupCapability | null>(null);
   const [permanentDeleteConfirmed, setPermanentDeleteConfirmed] = useState(false);
+  const [resumeEnabled, setResumeEnabled] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -435,6 +447,19 @@ function App({ client = unsupportedClient }: AppProps) {
       const nextHistory = await client.listScanHistory();
       startTransition(() => {
         setHistory(nextHistory);
+      });
+    } catch (error) {
+      startTransition(() => {
+        setErrorMessage(describeError(error));
+      });
+    }
+  });
+
+  const loadScanRuns = useEffectEvent(async () => {
+    try {
+      const nextRuns = await client.listScanRuns();
+      startTransition(() => {
+        setScanRuns(nextRuns);
       });
     } catch (error) {
       startTransition(() => {
@@ -514,6 +539,11 @@ function App({ client = unsupportedClient }: AppProps) {
     if (snapshot.state === "completed" && snapshot.completedScanId) {
       void openStoredScan(snapshot.completedScanId);
       void loadHistory();
+      void loadScanRuns();
+    }
+
+    if (snapshot.state === "cancelled" || snapshot.state === "failed") {
+      void loadScanRuns();
     }
   });
 
@@ -548,6 +578,7 @@ function App({ client = unsupportedClient }: AppProps) {
         const [
           initialStatus,
           initialHistory,
+          initialScanRuns,
           initialDuplicateStatus,
           initialCleanupRules,
           capability,
@@ -556,6 +587,7 @@ function App({ client = unsupportedClient }: AppProps) {
         ] = await Promise.all([
           client.getScanStatus(),
           client.listScanHistory(),
+          client.listScanRuns(),
           client.getDuplicateAnalysisStatus(),
           client.listCleanupRules(),
           client.getPrivilegedCleanupCapability(),
@@ -583,6 +615,7 @@ function App({ client = unsupportedClient }: AppProps) {
           setScanStatus(initialStatus);
           setDuplicateStatus(initialDuplicateStatus);
           setHistory(initialHistory);
+          setScanRuns(initialScanRuns);
           setCleanupRules(initialCleanupRules);
           setPrivilegedCapability(capability);
           if (initialStatus.rootPath) {
@@ -641,7 +674,7 @@ function App({ client = unsupportedClient }: AppProps) {
     resetReviewState();
 
     try {
-      const started = await client.startScan(normalizedRoot);
+      const started = await client.startScan(normalizedRoot, { resumeEnabled });
       const startedAt = new Date().toISOString();
       startTransition(() => {
         setScanStatus((currentValue) => {
@@ -661,6 +694,7 @@ function App({ client = unsupportedClient }: AppProps) {
         });
         setNotice((currentValue) => currentValue ?? `Scanning ${normalizedRoot}`);
       });
+      void loadScanRuns();
     } catch (error) {
       startTransition(() => {
         setErrorMessage(describeError(error));
@@ -688,6 +722,53 @@ function App({ client = unsupportedClient }: AppProps) {
   async function handleReopenScan(scanId: string) {
     setErrorMessage(null);
     await openStoredScan(scanId, `Loaded ${scanId} from local history.`);
+  }
+
+  async function handleResumeRun(run: ScanRunSummary) {
+    if (!run.canResume) {
+      setErrorMessage("Interrupted-run resume is unavailable for this run.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setNotice(null);
+    setCurrentScan(null);
+    setCurrentExplorerPath(null);
+    setExplorerSortMode("size");
+    resetReviewState();
+
+    try {
+      const resumed = await client.resumeScanRun(run.header.runId);
+      const resumedAt = new Date().toISOString();
+      startTransition(() => {
+        setRootPath(run.header.rootPath);
+        setScanStatus({
+          ...idleScanStatus,
+          scanId: resumed.runId,
+          rootPath: run.header.rootPath,
+          state: "running",
+          startedAt: resumedAt,
+          updatedAt: resumedAt,
+          currentPath: run.latestSnapshot.currentPath ?? run.header.rootPath,
+          message: `Resuming ${run.header.runId}`,
+        });
+        setNotice(`Resuming ${run.header.rootPath}`);
+      });
+      void loadScanRuns();
+    } catch (error) {
+      setErrorMessage(describeError(error));
+    }
+  }
+
+  async function handleCancelRun(runId: string) {
+    try {
+      await client.cancelScanRun(runId);
+      setNotice(`Cancelled interrupted run ${runId}.`);
+      setErrorMessage(null);
+      void loadScanRuns();
+    } catch (error) {
+      setErrorMessage(describeError(error));
+    }
   }
 
   async function handleOpenInExplorer(path: string) {
@@ -935,6 +1016,13 @@ function App({ client = unsupportedClient }: AppProps) {
       entry.scanId.toLowerCase().includes(normalizedHistoryScanIdFilter);
     return matchesRoot && matchesScanId;
   });
+  const interruptedRuns = [...scanRuns]
+    .filter((run) => run.header.status === "stale" || run.header.status === "abandoned")
+    .sort(
+      (left, right) =>
+        getSortableTimestamp(right.header.lastSnapshotAt) -
+        getSortableTimestamp(left.header.lastSnapshotAt),
+    );
 
   return (
     <main className="shell">
@@ -974,6 +1062,17 @@ function App({ client = unsupportedClient }: AppProps) {
                 placeholder="C:\\Users\\xiongxianfei\\Downloads"
               />
             </label>
+            <details className="field">
+              <summary>Advanced scan options</summary>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={resumeEnabled}
+                  onChange={(event) => setResumeEnabled(event.target.checked)}
+                />{" "}
+                Enable interrupted-run resume
+              </label>
+            </details>
             <div className="action-row">
               <button type="submit" className="primary-button" disabled={isSubmitting}>
                 Start scan
@@ -1077,6 +1176,63 @@ function App({ client = unsupportedClient }: AppProps) {
               )}
             </>
           )}
+
+          {interruptedRuns.length > 0 ? (
+            <>
+              <div className="panel-header">
+                <h3>Interrupted runs</h3>
+                <p>Recovered runs stay visible until you resume them or cancel them.</p>
+              </div>
+              <ul className="history-list">
+                {interruptedRuns.map((run) => (
+                  <li key={run.header.runId} className="history-entry">
+                    <div className="history-meta">
+                      <div className="history-title-row">
+                        <strong>{run.header.rootPath}</strong>
+                        <span className="history-badge">{run.header.status}</span>
+                        {run.hasResume ? (
+                          <span className="history-badge">
+                            {run.canResume ? "Resume available" : "Resume unavailable"}
+                          </span>
+                        ) : null}
+                      </div>
+                      <span>Created {formatTimestamp(run.createdAt)}</span>
+                      <span>{formatTimestamp(run.header.lastSnapshotAt)}</span>
+                      <span>Seq {run.seq}</span>
+                      <span>{run.itemsScanned} items scanned</span>
+                      <span>{run.errorsCount} errors</span>
+                      <span>
+                        {run.progressPercent == null
+                          ? "Progress pending"
+                          : `${Math.round(run.progressPercent)}% progress`}
+                      </span>
+                      <span>{run.scanRateItemsPerSec.toFixed(1)} items/s</span>
+                      <span className="history-id">Run ID: {run.header.runId}</span>
+                    </div>
+                    <div className="action-row">
+                      {run.hasResume ? (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={!run.canResume || scanStatus.state === "running"}
+                          onClick={() => void handleResumeRun(run)}
+                        >
+                          Resume run {run.header.runId}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void handleCancelRun(run.header.runId)}
+                      >
+                        Cancel run {run.header.runId}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
         </section>
       </section>
 

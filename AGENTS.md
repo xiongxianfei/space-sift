@@ -47,6 +47,8 @@ Use `bugfix` for bugs, `ci` for GitHub Actions or automation changes, and `pr` o
 - Never overwrite an older plan when starting a new initiative.
 - If a new plan replaces an older one, keep the older file and mark it as superseded.
 - Execution plans should follow `.codex/PLANS.md`.
+- `docs/plan.md` and the plan body metadata must stay aligned on lifecycle state.
+- A plan must not remain `draft` once implementation has started; known safe-progress blockers should be recorded as `blocked` promptly.
 
 ## Required reading before implementation
 
@@ -89,14 +91,20 @@ Current repository verification commands from the repo root:
 - `bash scripts/ci.sh`
 - `bash scripts/release-verify.sh`
 
+`bash scripts/ci.sh` is the canonical CI-parity command when branch-wide readiness matters.
+
 If Rust or other Tauri prerequisites are missing on the local machine, state
 that explicitly instead of claiming the desktop validation passed.
+
+If local file locks, path permissions, or other environment issues block a verification command, report the exact command and error instead of implying a test failure.
 
 ## Change management
 
 - Do not rewrite plan, spec, or workflow files unless the task requires it.
 - Remove or challenge stale instructions when they no longer match reality.
 - If a request conflicts with the current spec, ask whether the spec should change or the implementation should intentionally diverge only when the higher-priority sources do not already imply the answer.
+- During PR preparation, verify the intended base branch and actual diff instead of assuming `main`, especially when review branches are stacked.
+- Keep temporary verification directories and other local-only artifacts out of commits and PRs.
 
 ## Definition of done
 

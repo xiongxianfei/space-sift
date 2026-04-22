@@ -37,12 +37,13 @@
 
 - Tests are required when behavior can be exercised by a test harness.
 - Regressions MUST be added before or alongside bug fixes that change behavior.
-- `MUST` run relevant checks before claiming completion:
-  - `npm ci`
+- `bash scripts/ci.sh` MUST be treated as the canonical CI-parity gate when claiming a branch is ready for review or merge.
+- Before claiming a scoped task is complete, agents MUST run the smallest relevant subset of:
   - `npm run lint`
   - `npm run test`
   - `npm run build`
   - `cargo check --manifest-path src-tauri/Cargo.toml`
+- Dependency or lockfile validation SHOULD prefer `npm ci`; `npm install` MAY be used for local bootstrap when CI-parity validation is not yet required.
 - For release or publish-bound work, `bash scripts/release-verify.sh` MUST run before merge.
 - Agents MUST NOT make unverifiable claims about verification; any blocked or skipped command MUST be explicitly reported.
 - `MAY` reduce scope to the smallest relevant subset for tiny changes, but not below the minimum for confidence.
@@ -77,15 +78,20 @@
 
 ## 8) Verification rules
 
-- `ci.yml` and repository scripts define the minimum required verification for this project.
+- `.github/workflows/ci.yml` and `bash scripts/ci.sh` define the minimum CI contract for this project.
+- `.github/workflows/release.yml` and `bash scripts/release-verify.sh` define the release-readiness contract.
 - Agents MUST attach command-level verification status to final responses for completed work.
-- If required commands cannot run due missing prerequisites, that inability MUST be clearly stated.
+- If required commands cannot run due missing prerequisites, file locks, path-permission failures, or other local-environment constraints, the exact blocking command and error MUST be clearly stated.
+- Temporary verification workarounds such as alternate target directories MAY be used for diagnosis, but they MUST NOT be committed or silently left out of the final report.
 - Desktop/build verification MAY be skipped only when not requested, but the reason and impact MUST be documented.
 
 ## 9) Review rules
 
 - Use the plan/spec/test-spec/verify lifecycle for cross-cutting or risky work by default.
 - `plan-review`, `spec-review`, or `architecture-review` tasks MUST be requested when risk, sequence, or boundaries are unclear.
+- PR preparation MUST inspect the working tree, current branch, intended base branch, and actual diff before opening or updating a PR.
+- When stacked PRs are in use, agents MUST target the smallest correct base branch and MUST NOT assume `main`.
+- Dirty worktrees and uncommitted generated or temporary verification artifacts MUST be called out before PR creation.
 - Tiny one-file docs updates MAY skip formal proposals.
 - Any conflict with existing instructions MUST be surfaced before implementation proceeds.
 
@@ -97,6 +103,9 @@
   - user-facing docs (`README.md`, `docs/release.md`, or equivalent)
 - If release behavior changes, `docs/release.md` or equivalent MUST be updated.
 - Plan progress, decision logs, and validation notes MUST remain current during active execution.
+- `docs/plan.md` and the affected plan body MUST stay aligned when initiative status changes from draft, active, blocked, done, or superseded.
+- Once implementation work has started, the initiative MUST NOT remain marked `draft`.
+- If a known contract or artifact gap blocks safe progress, the initiative MUST be marked `blocked` as soon as that blocker is accepted.
 - `AGENTS.md` should stay practical and point to deeper workflows/contracts.
 
 ## 11) Agent behavior rules
@@ -106,6 +115,7 @@
 - Agents MUST NOT silently revert user edits made outside the current scope.
 - Agents MUST preserve user and local changes unless explicitly requested.
 - Agents MUST update the relevant active plan when milestone progress or decisions change.
+- Agents MUST keep temporary build outputs, verification scratch directories, and local-only artifacts out of commits and PRs.
 
 ## 12) Fast-lane exceptions
 

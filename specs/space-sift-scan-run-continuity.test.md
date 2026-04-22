@@ -1,4 +1,4 @@
-Status: draft
+Status: active
 
 # Space Sift scan run continuity test specification
 
@@ -27,16 +27,19 @@ Status: draft
 | `R2` Ordered snapshots with deterministic sequencing | `T1`, `T2`, `T10`, `T13` | Includes monotonic `seq` enforcement and legacy fallback behavior where supported. |
 | `R3` Progress snapshot semantics and bounded counters | `T3`, `T4`, `T6`, `T19` | Covers monotonic counts, normalized progress, and terminal totals. |
 | `R4` Heartbeat cadence and stale detection inputs | `T4`, `T5`, `T9`, `T10` | Uses injected clock/timer seam and restart reconciliation. |
-| `R5` Recovery semantics for stale and abandoned runs | `T9`, `T10`, `T11`, `T12`, `T19` | Includes startup reconciliation and surfaced recovery state. |
-| `R6` Cancellation semantics for live and recovered runs | `T8`, `T12`, `T19`, `T21` | Covers live cancel, synthetic cancel for non-live rows, and terminal rejection behavior. |
-| `R7` Resume gating and child-run semantics | `T14`, `T15`, `T16`, `T20` | Covers default-off behavior, rejection codes, and valid child-run creation. |
-| `R8` Privacy and persistence constraints | `T15`, `T17` | Verifies rejection paths and persisted payload hygiene. |
-| `R9` Retention and purge behavior | `T18` | Includes deletion verification and purge telemetry/audit. |
+| `R5` Recovery semantics for stale and abandoned runs | `T9`, `T10`, `T11`, `T12`, `T19`, `T20` | Includes startup reconciliation, surfaced recovery state, and visible `ABANDONED` behavior. |
+| `R6` Optional resumability and current unsupported-engine posture | `T11`, `T14`, `T15`, `T19`, `T20` | Covers default-off behavior, `UNSUPPORTED_ENGINE`, and `ABANDONED` plus visible resume metadata with disabled actionability. |
+| `R7` Privacy, security, and retention behavior | `T15`, `T17`, `T18` | Verifies rejection safety, token non-exposure, and purge eligibility for resumable versus non-resumable runs. |
+| `R8` API and UX consistency | `T12`, `T15`, `T19`, `T20`, `T21` | Covers machine-readable command errors, read-model consistency, and UI state handling. |
+| `R9` Failure handling and cancel behavior | `T8`, `T12`, `T19`, `T21` | Covers live cancel, synthetic non-live cancel, and terminal rejection behavior. |
 | `R10` Compatibility and migration behavior | `T13`, `T22` | Covers legacy rows, missing continuity data, and unchanged completed history reopen flows. |
 
 ## Example coverage map
 
-The feature spec does not define separate numbered examples. Acceptance criteria are treated as executable examples for coverage purposes.
+| Example | Covered by | Notes |
+| --- | --- | --- |
+| `E1` `ABANDONED` run keeps resume metadata visible while engine resume is unsupported | `T11`, `T19`, `T20` | Verifies `ABANDONED` remains visible while `has_resume = true` and `can_resume = false`. |
+| `E2` Old `ABANDONED` run becomes purge-eligible when resume is no longer valid | `T15`, `T18` | Verifies invalid or expired resume metadata no longer blocks retention purge. |
 
 | Acceptance example | Covered by |
 | --- | --- |
@@ -44,7 +47,7 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 | `AC2` Live progress persists with ordered snapshots and latest snapshot reads | `T1`, `T2`, `T3`, `T19` |
 | `AC3` Old run becomes `ABANDONED` when recovery window expires | `T11`, `T19`, `M2` |
 | `AC4` Resume disabled by default | `T14`, `T20` |
-| `AC5` Valid resume creates a new child run without mutating the original | `T16`, `T19`, `T20` |
+| `AC5` Engine-disabled resume remains unavailable through `can_resume = false` | `T15`, `T19`, `T20` |
 | `AC6` Invalid resume returns explicit rejection code | `T15` |
 | `AC7` Completed runs remain reopenable through existing history path | `T6`, `T19`, `T22` |
 | `AC8` Purge removes expired continuity data and emits signal | `T18`, `M4` |
@@ -58,7 +61,7 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Long-running but healthy traversal should not be marked stale solely because no files completed recently: `T4`, `T5`, `T9`.
 - `cancel_scan_run(runId)` against an already terminal run should return the contractually defined rejection and avoid duplicate terminal rows: `T12`.
 - Resume disabled path should omit resume token and expose `can_resume = false`: `T14`.
-- Resume rejection codes must be deterministic for target mismatch, privacy-scope mismatch, and token expiry: `T15`.
+- While engine resume support is disabled, resume rejection must deterministically return `UNSUPPORTED_ENGINE`: `T15`.
 - Legacy databases with no continuity rows must still reopen completed scan history correctly: `T13`, `T22`.
 - Purge must skip active, stale-within-window, or resumable records that are still retained: `T18`.
 
@@ -229,7 +232,7 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Rust reconciliation tests.
 
 `T11. Reconciliation marks expired interrupted runs as abandoned`
-- Covers: `R5`, `AC3`
+- Covers: `R5`, `R6`, `E1`, `AC3`
 - Level: integration
 - Fixture/setup: persisted `RUNNING` run older than abandon threshold with no active process owner.
 - Steps:
@@ -245,7 +248,7 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Rust reconciliation tests and frontend list/detail tests.
 
 `T12. Cancel stale or recovered run follows non-live cancel contract`
-- Covers: `R5`, `R6`
+- Covers: `R5`, `R8`, `R9`
 - Level: integration
 - Fixture/setup: one `STALE` run, one `ABANDONED` run, and one already-terminal run.
 - Steps:
@@ -277,7 +280,7 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Rust repository tests and extensions of existing `app-db` compatibility tests.
 
 `T14. Resume remains disabled by default`
-- Covers: `R7`, `AC4`
+- Covers: `R6`, `AC4`
 - Level: integration
 - Fixture/setup: default configuration with no explicit resume enablement, interrupted run persisted in the database, frontend mock client exposing read model.
 - Steps:
@@ -292,41 +295,28 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Automation location:
 - Rust command tests plus React/Vitest UI tests.
 
-`T15. Resume rejection codes are explicit and deterministic`
-- Covers: `R7`, `R8`, `AC6`
+`T15. Resume rejects unsupported engine without creating a child run`
+- Covers: `R6`, `R7`, `R8`, `E2`, `AC5`
 - Level: integration
-- Fixture/setup: resume-enabled configuration and persisted interrupted runs whose target fingerprint, privacy scope, or token expiry each violate the stored resume contract.
+- Fixture/setup: resume-enabled configuration and persisted interrupted run with valid metadata while engine resume capability is disabled.
 - Steps:
-- Attempt resume for each invalid case.
-- Inspect returned error codes and persisted state.
+- Attempt resume through the public command.
+- Inspect the returned error code, original run state, and audit evidence.
 - Expected result:
-- Target mismatch yields `TARGET_CHANGED`.
-- Privacy mismatch yields `PRIVACY_SCOPE_MISMATCH`.
-- Expired resume token yields `TOKEN_EXPIRED`.
-- Original run remains unchanged and terminality is not silently mutated by the rejected attempt.
+- The command returns `UNSUPPORTED_ENGINE`.
+- No child run is created.
+- The original run remains unchanged.
+- A resume-rejected audit/log event is recorded with the stable reason code.
 - Failure proves:
-- Resume safety decisions are implementation-defined rather than contract-defined.
+- The public contract still advertises executable resume when the engine cannot continue from a persisted cursor.
 - Automation location:
 - Rust command integration tests.
 
-`T16. Valid resume creates a child run and preserves the original run record`
-- Covers: `R7`, `AC5`
-- Level: integration
-- Fixture/setup: resume-enabled configuration, interrupted run with valid resume token and matching fingerprint/privacy scope.
-- Steps:
-- Invoke resume.
-- Read original run, new child run, list ordering, and frontend detail state.
-- Expected result:
-- A new child run is created with its own `runId`.
-- The original run remains immutable as historical context.
-- The child run references the prior run as designed and starts with its own ordered snapshots.
-- Failure proves:
-- Resume mutates history in place and breaks auditability or replay of prior attempts.
-- Automation location:
-- Rust command integration tests and frontend integration tests for resume affordances.
+`T16. Future engine-supported resume creates a child run and preserves the original run record`
+- Deferred until the scan engine can continue traversal from a persisted cursor.
 
 `T17. Persisted continuity data excludes file contents and secret resume material`
-- Covers: `R8`
+- Covers: `R7`
 - Level: integration
 - Fixture/setup: persisted run with representative file names, counts, resume metadata, audit rows, and any structured log capture.
 - Steps:
@@ -341,7 +331,7 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Rust integration tests with direct DB inspection and telemetry capture.
 
 `T18. Purge removes expired continuity data, skips retained runs, and emits purge signal`
-- Covers: `R9`, `AC8`
+- Covers: `R7`, `E2`, `AC8`
 - Level: integration
 - Fixture/setup: mix of expired continuity runs, active/recent interrupted runs, and completed history rows in a temp database; fake clock if retention windows are time-based.
 - Steps:
@@ -357,7 +347,7 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Rust repository or maintenance-job integration tests.
 
 `T19. Run read APIs expose the continuity contract consistently`
-- Covers: `R1`, `R3`, `R5`, `R6`, `R7`, `AC1`, `AC5`, `AC7`
+- Covers: `R1`, `R3`, `R5`, `R6`, `R8`, `E1`, `AC1`, `AC5`, `AC7`
 - Level: contract
 - Fixture/setup: representative runs across `RUNNING`, `STALE`, `ABANDONED`, `CANCELLED`, `FAILED`, and `COMPLETED`.
 - Steps:
@@ -365,7 +355,7 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Compare payload fields against the spec.
 - Expected result:
 - Responses include header plus latest snapshot fields needed by the UI.
-- Preview and resume metadata are populated only when allowed.
+- Preview and resume metadata are populated only when allowed, and current public actionability is represented by `can_resume` alone.
 - Unknown `runId` returns the specified not-found behavior.
 - Terminal and recoverable states do not conflict across payload fields.
 - Failure proves:
@@ -376,24 +366,23 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 ### Frontend compatibility and UX regressions
 
 `T20. Scan history UI renders continuity state, recovery, and resume gating correctly`
-- Covers: `R5`, `R7`, `AC1`, `AC4`, `AC5`
+- Covers: `R5`, `R6`, `R8`, `E1`, `AC1`, `AC4`, `AC5`
 - Level: frontend integration
-- Fixture/setup: React/Vitest test using mocked `SpaceSiftClient` responses for `STALE`, `ABANDONED`, resume-disabled, resume-enabled, and resumed-child scenarios.
+- Fixture/setup: React/Vitest test using mocked `SpaceSiftClient` responses for `STALE`, `ABANDONED`, resume-disabled, and engine-disabled resume scenarios.
 - Steps:
 - Render the history/run detail UI for each state.
 - Trigger refresh, resume checkbox, and resume action where applicable.
 - Expected result:
 - Interrupted runs show the correct recovery badge or status.
 - `ABANDONED` is visually distinct from `STALE`.
-- Resume controls are hidden or disabled when default-off or rejected, and enabled only when the read model allows it.
-- Successful resume updates the UI to the new child run without rewriting the original history row.
+- Resume controls are hidden or disabled when default-off or engine-disabled, and enabled only when the read model allows it.
 - Failure proves:
 - Backend continuity work is not actually consumable in the existing UI flow.
 - Automation location:
 - [scan-history.test.tsx](/D:/Data/20260415-space-sift/src/scan-history.test.tsx) or adjacent React/Vitest coverage.
 
 `T21. UI supports cancelling stale or recovered runs without corrupting history`
-- Covers: `R6`
+- Covers: `R8`, `R9`
 - Level: frontend integration
 - Fixture/setup: mocked client responses for stale and abandoned run detail plus cancel command outcomes.
 - Steps:
@@ -437,6 +426,8 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Fake clock or timer provider seam for heartbeat, stale, abandon, purge, and token-expiry tests.
 - Resume fixture set containing:
 - valid target fingerprint,
+- engine-disabled variant for the current release posture.
+- Deferred future engine-supported resume fixture set:
 - changed target fingerprint,
 - privacy-scope mismatch variant,
 - expired token variant.
@@ -472,7 +463,8 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 
 ## Security and privacy verification
 
-- `T15` verifies resume rejection safety for target, privacy scope, and token expiry mismatches.
+- `T15` verifies unsupported-engine resume rejection safety and confirms no child run is created in the current release posture.
+- Deferred future engine-supported resume tests should verify target mismatch, privacy-scope mismatch, and token-expiry rejection codes.
 - `T17` verifies snapshots, headers, audit rows, and telemetry do not persist file contents or leak sensitive resume material.
 - Add negative assertions that UI-facing read models do not expose raw resume tokens.
 - If preview metadata is user-visible, assert it contains only allowed safe summary data rather than file-content payloads.
@@ -489,8 +481,7 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 - Leave an interrupted run beyond the stale threshold but short of abandon threshold and verify it surfaces as `STALE`.
 - Leave an interrupted run beyond the abandon threshold and verify it surfaces as `ABANDONED`.
 - With resume disabled, verify no resume action is shown.
-- With resume enabled and valid, resume an interrupted run and verify a new child run is created while the original remains visible as prior history.
-- Attempt resume with changed target or privacy scope and verify the explicit rejection code is surfaced.
+- With resume metadata present while engine resume support is disabled, verify the UI keeps resume unavailable and the command rejects with `UNSUPPORTED_ENGINE`.
 - Cancel a stale or abandoned run and verify it transitions once to `CANCELLED`.
 - Complete a scan after continuity persistence is enabled and verify the completed result still reopens through the existing history path.
 - Run retention or purge flow against expired continuity data and verify the UI no longer lists purged runs while retained runs remain visible.
@@ -504,10 +495,8 @@ The feature spec does not define separate numbered examples. Acceptance criteria
 
 ## Uncovered gaps
 
-- The feature spec references legacy ordering fallback by `(snapshot_at, created_at)` when `seq` is missing, but the current architecture schema for `scan_run_snapshots` does not describe a `created_at` column. Implementation should not proceed on that compatibility claim until spec and architecture agree on the persisted fields and fallback rule.
-- The feature spec says startup recovery marks an interrupted run `ABANDONED` unless resume is enabled and valid. The architecture currently describes age-based reconciliation precedence but does not clearly preserve that resume-valid exception. This needs to be resolved before implementation of reconciliation and resume tests.
-- If the command contract for already-terminal `cancel_scan_run(runId)` responses is still undecided between explicit conflict and no-op semantics, the feature spec must pin that behavior before code or tests claim full coverage.
+- None at this time. The previously blocking `ABANDONED` versus resume-eligibility conflict, legacy ordering fallback concern, and terminal cancel-response ambiguity are now resolved in the governing spec and aligned with the architecture note.
 
 ## Readiness for implement
 
-Not ready for `implement` until the uncovered gaps above are resolved or the feature spec is updated to match the architecture. Once those are clarified, this test spec is ready to drive milestone-by-milestone TDD for the continuity feature.
+Ready to resume `implement` for the remaining continuity milestones under the current unsupported-engine resume posture. Successful child-run resume remains a deferred future slice until the scan engine can continue from a persisted cursor.

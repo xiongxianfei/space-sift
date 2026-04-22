@@ -223,9 +223,15 @@ function createCleanupClient(options?: {
   const client: SpaceSiftClient = {
     startScan: vi.fn(async () => ({ scanId: "scan-running" })),
     cancelActiveScan: vi.fn(async () => {}),
+    cancelScanRun: vi.fn(async () => {}),
     getScanStatus: vi.fn(async () => makeCompletedScanStatus(scan.scanId)),
     listScanHistory: vi.fn(async () => [makeHistoryEntry(scan.scanId)]),
     openScanHistory: vi.fn(async () => scan),
+    listScanRuns: vi.fn(async () => []),
+    openScanRun: vi.fn(async () => {
+      throw new Error("no scan run");
+    }),
+    resumeScanRun: vi.fn(async () => ({ runId: "run-resumed" })),
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: duplicateAnalysis.analysisId })),
     cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () =>

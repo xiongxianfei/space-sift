@@ -1,11 +1,12 @@
 use crate::state::{ActiveScanHandle, AppState, ScanManager, ScanRunPersistenceCursor};
-use app_db::{HistoryStore, PurgedScanRuns};
-use chrono::{DateTime, Utc};
+use app_db::{HistoryStore, PurgedScanRuns, ScanRunStartOptions};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use scan_core::{
     CompletedScan, ScanFailure, ScanLifecycleState, ScanRequest, ScanRunSnapshot, ScanRunStatus,
-    ScanStatusSnapshot, DEFAULT_TOP_ITEMS_LIMIT,
+    ScanStatusSnapshot, DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID, DEFAULT_TOP_ITEMS_LIMIT,
+    SCAN_RESUME_ENGINE_SUPPORTED,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,19 @@ pub struct StartScanResponse {
     pub scan_id: String,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartScanOptions {
+    #[serde(default)]
+    pub resume_enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeScanRunResponse {
+    pub run_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanRunCommandError {
@@ -29,6 +43,8 @@ pub struct ScanRunCommandError {
 
 const CONTINUITY_ERROR_CODE_SNAPSHOT_WRITE_FAILED: &str = "SNAPSHOT_WRITE_FAILED";
 const CONTINUITY_ERROR_CODE_FINALIZATION_FAILED: &str = "FINALIZATION_FAILED";
+const RESUME_ERROR_CODE_NOT_AVAILABLE: &str = "RESUME_NOT_AVAILABLE";
+const RESUME_ERROR_CODE_UNSUPPORTED_ENGINE: &str = "UNSUPPORTED_ENGINE";
 const HEARTBEAT_INTERVAL_SECONDS: i64 = 30;
 const HEARTBEAT_LOOP_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const NO_PROGRESS_WARNING_INTERVALS: u32 = 4;
@@ -42,8 +58,36 @@ enum FailedRunCause {
 #[tauri::command]
 pub fn start_scan(
     root_path: String,
+    options: Option<StartScanOptions>,
     app: AppHandle,
     state: State<'_, AppState>,
+) -> Result<StartScanResponse, String> {
+    start_scan_impl(
+        &state,
+        root_path,
+        options.unwrap_or_default(),
+        None,
+        None,
+        app,
+    )
+}
+
+#[tauri::command]
+pub fn resume_scan_run(
+    run_id: String,
+    _app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ResumeScanRunResponse, ScanRunCommandError> {
+    resume_scan_run_impl(&state.history_store, &run_id)
+}
+
+fn start_scan_impl(
+    state: &AppState,
+    root_path: String,
+    options: StartScanOptions,
+    resumed_from_run_id: Option<&str>,
+    current_path: Option<&str>,
+    app: AppHandle,
 ) -> Result<StartScanResponse, String> {
     let normalized_root = root_path.trim().to_string();
     if normalized_root.is_empty() {
@@ -51,15 +95,36 @@ pub fn start_scan(
     }
 
     let scan_id = scan_core::make_scan_id();
-    let active_scan =
-        state
-            .scan_manager
-            .start(scan_id.clone(), normalized_root.clone())?;
-    if let Err(error) = state.history_store.record_scan_run_started(
+    let active_scan = state
+        .scan_manager
+        .start(scan_id.clone(), normalized_root.clone())?;
+    let target_id = normalized_root.clone();
+    let resume_token = options.resume_enabled.then(|| format!("resume-{scan_id}"));
+    let resume_expires_at = options
+        .resume_enabled
+        .then(|| build_resume_expiry_timestamp(&active_scan.started_at))
+        .transpose()?;
+    let resume_payload_json = options.resume_enabled.then(|| {
+        build_resume_payload_json(current_path.or(Some(normalized_root.as_str())), 1)
+    });
+    let resume_target_fingerprint_json = options.resume_enabled.then(|| {
+        build_resume_target_fingerprint_json(&normalized_root, &target_id)
+    });
+    if let Err(error) = state.history_store.record_scan_run_started_with_options(
         &active_scan.scan_id,
         &normalized_root,
         &active_scan.started_at,
-        Some(&normalized_root),
+        ScanRunStartOptions {
+            current_path: current_path.or(Some(&normalized_root)),
+            target_id: Some(&target_id),
+            resumed_from_run_id,
+            resume_enabled: options.resume_enabled,
+            resume_token: resume_token.as_deref(),
+            resume_expires_at: resume_expires_at.as_deref(),
+            resume_payload_json: resume_payload_json.as_deref(),
+            resume_target_fingerprint_json: resume_target_fingerprint_json.as_deref(),
+            privacy_scope_id: Some(DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID),
+        },
     ) {
         state.scan_manager.finish(ScanStatusSnapshot::default());
         return Err(error.to_string());
@@ -82,6 +147,38 @@ pub fn start_scan(
     });
 
     Ok(StartScanResponse { scan_id })
+}
+
+fn resume_scan_run_impl(
+    history_store: &HistoryStore,
+    run_id: &str,
+) -> Result<ResumeScanRunResponse, ScanRunCommandError> {
+    history_store
+        .open_scan_run(run_id)
+        .map_err(|error| scan_run_command_error(error, Some(run_id)))?;
+    if !SCAN_RESUME_ENGINE_SUPPORTED {
+        return Err(reject_resume(
+            history_store,
+            run_id,
+            ScanRunCommandError {
+                code: RESUME_ERROR_CODE_UNSUPPORTED_ENGINE,
+                message: format!(
+                    "scan run resume is unsupported because the current scan engine cannot continue from a persisted cursor yet: {run_id}"
+                ),
+                run_id: Some(run_id.to_string()),
+            },
+        ));
+    }
+
+    Err(reject_resume(
+        history_store,
+        run_id,
+        ScanRunCommandError {
+            code: RESUME_ERROR_CODE_NOT_AVAILABLE,
+            message: format!("scan run is not resumable: {run_id}"),
+            run_id: Some(run_id.to_string()),
+        },
+    ))
 }
 
 #[tauri::command]
@@ -354,6 +451,49 @@ fn scan_run_command_error(
             run_id: run_id.map(str::to_string),
         },
     }
+}
+
+fn build_resume_payload_json(current_path: Option<&str>, latest_seq: u64) -> String {
+    serde_json::json!({
+        "currentPath": current_path,
+        "latestSeq": latest_seq,
+    })
+    .to_string()
+}
+
+fn build_resume_target_fingerprint_json(root_path: &str, target_id: &str) -> String {
+    serde_json::json!({
+        "rootPath": root_path,
+        "targetId": target_id,
+    })
+    .to_string()
+}
+
+fn build_resume_expiry_timestamp(started_at: &str) -> Result<String, String> {
+    let started = DateTime::parse_from_rfc3339(started_at)
+        .map_err(|error| format!("invalid scan start timestamp: {error}"))?;
+    Ok((started.with_timezone(&Utc) + ChronoDuration::days(30)).to_rfc3339())
+}
+
+fn reject_resume(
+    history_store: &HistoryStore,
+    run_id: &str,
+    error: ScanRunCommandError,
+) -> ScanRunCommandError {
+    let timestamp = scan_core::current_timestamp();
+    log_scan_run_resume_rejected(run_id, error.code, &timestamp);
+    if let Err(audit_error) =
+        history_store.record_scan_run_resume_rejection(run_id, error.code, &timestamp)
+    {
+        log_scan_run_failure_event(
+            "scan_run_resume_rejected_audit_write_failed",
+            run_id,
+            error.code,
+            &audit_error.to_string(),
+        );
+    }
+
+    error
 }
 
 fn cancel_scan_run_impl(
@@ -699,6 +839,26 @@ fn log_scan_run_no_progress_warning(
             last_progress_at,
             unchanged_heartbeat_count,
         )
+    );
+}
+
+fn scan_run_resume_rejected_payload(
+    run_id: &str,
+    reason_code: &str,
+    timestamp: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "event": "scan_run_resume_rejected",
+        "runId": run_id,
+        "reasonCode": reason_code,
+        "timestamp": timestamp,
+    })
+}
+
+fn log_scan_run_resume_rejected(run_id: &str, reason_code: &str, timestamp: &str) {
+    eprintln!(
+        "{}",
+        scan_run_resume_rejected_payload(run_id, reason_code, timestamp)
     );
 }
 
@@ -1358,4 +1518,78 @@ mod tests {
         assert_eq!(payload["runIds"][1], "run-2");
         assert!(payload["timestamp"].as_str().is_some());
     }
+
+    #[test]
+    fn scan_run_resume_rejected_payload_is_structured_and_named() {
+        let payload = scan_run_resume_rejected_payload(
+            "run-1",
+            RESUME_ERROR_CODE_UNSUPPORTED_ENGINE,
+            "2026-04-21T10:00:00Z",
+        );
+
+        assert_eq!(payload["event"], "scan_run_resume_rejected");
+        assert_eq!(payload["runId"], "run-1");
+        assert_eq!(payload["reasonCode"], RESUME_ERROR_CODE_UNSUPPORTED_ENGINE);
+        assert_eq!(payload["timestamp"], "2026-04-21T10:00:00Z");
+    }
+
+    #[test]
+    fn resume_scan_run_impl_records_unsupported_engine_audit_without_child_run() {
+        let fixture = tempdir().expect("db fixture");
+        let history_store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            || "2026-04-21T10:00:00Z".to_string(),
+        );
+        history_store
+            .record_scan_run_started_with_options(
+                "run-1",
+                "C:\\scan-root",
+                "2026-04-21T09:00:00Z",
+                ScanRunStartOptions {
+                    current_path: Some("C:\\scan-root\\nested"),
+                    target_id: Some("C:\\scan-root"),
+                    resumed_from_run_id: None,
+                    resume_enabled: true,
+                    resume_token: Some("resume-run-1"),
+                    resume_expires_at: Some("2099-04-20T09:00:00Z"),
+                    resume_payload_json: Some(
+                        "{\"currentPath\":\"C:\\\\scan-root\\\\nested\",\"latestSeq\":2}",
+                    ),
+                    resume_target_fingerprint_json: Some(
+                        "{\"rootPath\":\"C:\\\\scan-root\",\"targetId\":\"C:\\\\scan-root\"}",
+                    ),
+                    privacy_scope_id: Some(DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID),
+                },
+            )
+            .expect("resume-enabled run should persist");
+        history_store
+            .append_scan_run_snapshot(&ScanRunSnapshot {
+                run_id: "run-1".to_string(),
+                seq: 2,
+                snapshot_at: "2026-04-21T09:05:00Z".to_string(),
+                created_at: "2026-04-21T09:05:00Z".to_string(),
+                status: ScanRunStatus::Abandoned,
+                files_discovered: 10,
+                directories_discovered: 2,
+                items_discovered: 12,
+                items_scanned: 12,
+                errors_count: 0,
+                bytes_processed: 4096,
+                scan_rate_items_per_sec: 3.5,
+                progress_percent: Some(65.0),
+                current_path: Some("C:\\scan-root\\nested".to_string()),
+                message: Some("Run marked abandoned during startup reconciliation.".to_string()),
+            })
+            .expect("abandoned snapshot should append");
+
+        let error = resume_scan_run_impl(&history_store, "run-1")
+            .expect_err("resume should stay disabled without scan-core cursor support");
+
+        assert_eq!(error.code, RESUME_ERROR_CODE_UNSUPPORTED_ENGINE);
+        assert_eq!(
+            load_audit_reason_codes(&history_store, "run-1"),
+            vec![RESUME_ERROR_CODE_UNSUPPORTED_ENGINE.to_string()]
+        );
+    }
 }
+

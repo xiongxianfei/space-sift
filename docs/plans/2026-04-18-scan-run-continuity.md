@@ -2,12 +2,18 @@
 
 ## Metadata
 
-- Status: draft
+- Status: done
 - Owner: xiongxianfei / Codex
 - Start date: 2026-04-18
-- Last updated: 2026-04-18
-- Related issue or PR: none yet
+- Last updated: 2026-04-22
+- Related issue or PR: PR #12
 - Supersedes: none
+
+## Current lifecycle state
+
+- Done.
+- M1 through M7 are complete.
+- Current release posture is closed with additive continuity, recovery, non-live actions, and explicitly non-executable resume while engine cursor continuation remains deferred.
 
 ## Purpose / big picture
 
@@ -267,7 +273,7 @@ This initiative is proceeding now because the user explicitly requested the cont
   - M1 through M5
 - Tests to add/update:
   - client contract tests for new run commands
-  - backend tests for resume rejection codes and child-run creation
+  - backend tests for `UNSUPPORTED_ENGINE` rejection and explicit proof that no child run is created while engine resume support is disabled
   - UI regressions for recoverable run summaries, `ABANDONED` badge display, and non-live cancel refresh
   - UI regressions proving resume is off by default and enabled only through the advanced checkbox
   - legacy history regressions proving completed-scan reopen behavior still wins for explorer flows
@@ -284,7 +290,7 @@ This initiative is proceeding now because the user explicitly requested the cont
   - `npm run lint`
   - `npm run build`
 - Expected observable result:
-  - the user can view recoverable runs, explicitly enable resume for new runs, and resume or cancel stale runs without losing the existing completed-history experience
+  - the user can view recoverable runs, explicitly enable resume metadata for new runs, cancel stale runs, and keep executable resume unavailable until engine cursor continuation exists; public read models surface `can_resume = false`, direct `resume_scan_run` calls return `UNSUPPORTED_ENGINE`, and no child run is created in the current posture
 - Risks:
   - UI state collisions between active live scans, recovered runs, and completed result panels
   - overexposing resume before the backend invariants are proven
@@ -392,8 +398,8 @@ This initiative is proceeding now because the user explicitly requested the cont
 - [x] M3. Heartbeat timer and no-progress observability
 - [x] M4. Restart reconciliation and run read APIs
 - [x] M5. Non-live cancellation, retention, and purge signals
-- [ ] M6. Resume-gated flow and frontend/client integration
-- [ ] M7. Integrated verification and closeout
+- [x] M6. Resume-gated flow and frontend/client integration
+- [x] M7. Integrated verification and closeout
 
 ## Decision log
 
@@ -604,3 +610,81 @@ Validation follow-up:
 - Validation:
   - `cargo test --manifest-path src-tauri/Cargo.toml -p app-db scan_run_purge_` passed.
   - `cargo check --manifest-path src-tauri/Cargo.toml` had already passed in the same follow-up after the `app-db` production-code change and remained applicable because the final correction only adjusted the new purge regression fixture.
+
+## 2026-04-21 implementation update: M6 resume-gated flow and frontend/client integration
+
+- Superseded where conflicting by `2026-04-21 M6 follow-up correction: honest resume gating, summary-card coverage, and rejection observability`.
+
+- Progress: completed the sixth implementation slice for explicit resume enablement, resume guards, and additive continuity UI wiring.
+- Completed:
+  - exposed continuity run types and commands through the shared TypeScript client and Tauri bridge, including `cancel_scan_run`, `list_scan_runs`, `open_scan_run`, and `resume_scan_run`;
+  - added the advanced scan-start opt-in for interrupted-run resume and surfaced recoverable `STALE` / `ABANDONED` runs in the main app shell with explicit resume and cancel actions;
+  - added backend resume start wiring so new runs persist resume token, expiry, payload, target fingerprint, and `resumed_from_run_id` metadata without leaking raw resume material through the serialized read model;
+  - initial read-model resume eligibility wiring was implemented here, but the current contract is defined by the follow-up correction below: `can_resume = false` while engine resume support is disabled, no child run is created, and executable resume remains unavailable;
+  - added regressions proving resume remains opt-in and serialized run detail omits raw resume token fields.
+- Decisions:
+  - kept the continuity UI additive inside the existing Recent scans surface instead of introducing a new dedicated recovery page, which preserves the current completed-history flow while still making interrupted runs actionable;
+  - hid raw resume fields with serde-only serialization controls on the Rust DTO rather than splitting the internal repository model from the external command model in this milestone.
+- Surprises:
+  - existing app-db clock-driven tests needed more scripted timestamps because repository helpers already reopen run detail after writes and therefore consume the deterministic clock during both write and read phases;
+  - legacy purge tests assumed executable resume from stored metadata alone; the current contract instead folds engine capability into `can_resume`, so executable resume stays unavailable until future scan-core cursor support exists.
+- Validation:
+  - `npm run test -- src/App.test.tsx src/scan-history.test.tsx` passed.
+  - `npm run test -- src/cleanup.test.tsx src/duplicates.test.tsx src/results-explorer.test.tsx` passed.
+  - `npm run lint` passed.
+  - `npm run build` passed.
+  - `cargo test --manifest-path src-tauri/Cargo.toml -p app-db scan_run_` passed.
+  - `cargo test --manifest-path src-tauri/Cargo.toml ensure_resume_allowed_returns_explicit_reason_codes` passed at the time of this initial slice, but that test and contract were superseded by the follow-up correction below.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` passed.
+
+## 2026-04-21 M6 follow-up correction: honest resume gating, summary-card coverage, and rejection observability
+
+- Progress: corrected the M6 resume path after code review without widening scope into a new scan-core traversal design.
+- Completed:
+  - changed `resume_scan_run` so it now rejects with `UNSUPPORTED_ENGINE` instead of faking a fresh root scan while the scan engine lacks persisted-cursor continuation;
+  - extended run summaries/details with explicit interrupted-run card fields: `seq`, `created_at`, `items_scanned`, `errors_count`, normalized `progress_percent`, and `scan_rate_items_per_sec`;
+  - rendered those required continuity fields in the interrupted-run cards and made `can_resume` the only public resume actionability signal;
+  - added `scan_run_resume_rejected` structured log payloads plus matching `scan_run_audit` rows for resume rejection reasons.
+- Decisions:
+  - folded engine capability into `can_resume` and removed the temporary public `resume_supported` field so the read model has one actionability signal;
+  - kept the returned API error codes unchanged and added observability as a side effect rather than widening the command surface.
+- Known follow-up:
+  - true child-run resume remains blocked on future `scan-core` support for continuing traversal from a persisted cursor.
+- Validation:
+  - `cargo test --manifest-path src-tauri/Cargo.toml -p app-db scan_run_` passed.
+  - `cargo test --manifest-path src-tauri/Cargo.toml commands::scan::tests::` passed.
+  - `npm run test -- src/scan-history.test.tsx` passed.
+  - `npm run lint` passed.
+  - `npm run build` passed.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` passed.
+
+## 2026-04-22 artifact-alignment and CI script correction
+
+- Progress: aligned the remaining proof artifacts and repaired the canonical CI script line-ending issue discovered during verify.
+- Completed:
+  - rewrote the active `T15` expectations so the current release posture requires only `UNSUPPORTED_ENGINE`, while target/privacy/token rejection variants are deferred to future engine-supported resume tests;
+  - marked the earlier M6 implementation note as superseded where it conflicts with the follow-up correction;
+  - tightened the active M6 observable-result text so the plan explicitly says `can_resume = false`, no child run is created, and executable resume remains unavailable in the current release posture;
+  - normalized `scripts/ci.sh` to LF and added `.gitattributes` shell line-ending enforcement for `*.sh`.
+- Validation:
+  - `bash scripts/ci.sh` now gets past the earlier CRLF/`pipefail` failure, but it is still blocked in the local `bash` environment because this machine resolves `bash` to WSL2 with no `npm`, no `cargo`, and no Windows-shell interop on PATH.
+  - Exact blocker: `npm is not available on PATH`.
+
+## 2026-04-22 M7 integrated verification and closeout
+
+- Progress: completed the final integrated verification slice and closed the initiative.
+- Completed:
+  - removed the last stale manual QA line that still described changed-target or privacy-scope resume rejection in the current unsupported-engine posture;
+  - proved the canonical CI script under native Windows Git Bash at `D:\Software\Git\bin\bash.exe` rather than the incompatible WSL `bash` on PATH;
+  - aligned the plan index and plan body to `done` after all milestones and integrated verification completed.
+- Validation:
+  - `cargo test --manifest-path src-tauri/Cargo.toml -p app-db scan_run_` passed.
+  - `cargo test --manifest-path src-tauri/Cargo.toml commands::scan::tests::` passed.
+  - `npm run test` passed (`37` tests).
+  - `npm run lint` passed.
+  - `npm run build` passed.
+  - `cargo check --manifest-path src-tauri/Cargo.toml` passed.
+  - `npm run tauri dev` launched successfully for desktop smoke validation.
+  - `D:\Software\Git\bin\bash.exe scripts/ci.sh` passed.
+- Notes:
+  - `bash scripts/ci.sh` through the default `bash` on PATH still resolves to WSL2 on this machine and remains an environment-specific limitation rather than a repository-script failure.

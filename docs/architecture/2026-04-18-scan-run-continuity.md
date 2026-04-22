@@ -268,7 +268,16 @@ sequenceDiagram
 5. If the latest status is already terminal, return `409` rather than silently appending another terminal row.
 6. First-pass non-live cancellation does not emit a Tauri event; the client refreshes run state by command response plus explicit refetch.
 
-### Resume flow
+### Resume flow - deferred target design
+
+Current implementation posture:
+
+- the current scan engine does not expose a durable traversal cursor
+- `resume_scan_run` is a defensive command gate and rejects with `UNSUPPORTED_ENGINE`
+- public read models report `can_resume = false` while engine resume capability is disabled
+- no child run is created in the unsupported-engine path
+
+Target design once engine resume is implemented:
 
 1. UI reads a recoverable run from `open_scan_run`.
 2. User triggers `resume_scan_run(runId)`.

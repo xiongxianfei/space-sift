@@ -114,11 +114,17 @@ pub struct ScanRunHeader {
     pub terminal_at: Option<String>,
     pub completed_scan_id: Option<String>,
     pub resumed_from_run_id: Option<String>,
+    #[serde(skip_serializing)]
     pub resume_enabled: bool,
+    #[serde(skip_serializing)]
     pub resume_token: Option<String>,
+    #[serde(skip_serializing)]
     pub resume_expires_at: Option<String>,
+    #[serde(skip_serializing)]
     pub resume_payload_json: Option<String>,
+    #[serde(skip_serializing)]
     pub resume_target_fingerprint_json: Option<String>,
+    #[serde(skip_serializing)]
     pub privacy_scope_id: Option<String>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
@@ -156,6 +162,12 @@ pub struct ScanRunDetail {
     pub snapshot_preview_page: u32,
     pub snapshot_preview_page_size: u32,
     pub snapshot_preview_total: u64,
+    pub seq: u64,
+    pub created_at: String,
+    pub items_scanned: u64,
+    pub errors_count: u64,
+    pub progress_percent: Option<f64>,
+    pub scan_rate_items_per_sec: f64,
     pub has_resume: bool,
     pub can_resume: bool,
 }
@@ -166,9 +178,17 @@ pub struct ScanRunSummary {
     pub header: ScanRunHeader,
     pub latest_snapshot: ScanRunSnapshot,
     pub snapshot_preview: Vec<ScanRunSnapshot>,
+    pub seq: u64,
+    pub created_at: String,
+    pub items_scanned: u64,
+    pub errors_count: u64,
+    pub progress_percent: Option<f64>,
+    pub scan_rate_items_per_sec: f64,
     pub has_resume: bool,
     pub can_resume: bool,
 }
+
+pub const SCAN_RESUME_ENGINE_SUPPORTED: bool = false;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
