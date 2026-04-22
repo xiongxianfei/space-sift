@@ -9,7 +9,7 @@ Optimize for correctness, explicitness, small reviewable diffs, and alignment wi
 When instructions conflict, follow this order:
 
 1. Direct user request
-2. `.codex/CONSTITUTION.md`
+2. `CONSTITUTION.md`
 3. Approved feature spec in `specs/`
 4. Matching test spec in `specs/`
 5. Active execution plan file in `docs/plans/`

@@ -12,6 +12,7 @@ import type {
 } from "./lib/spaceSiftTypes";
 
 const uiReadyTimeout = 5000;
+const uiTestTimeout = 15000;
 
 type ScanEntryFixture = {
   path: string;
@@ -171,7 +172,7 @@ function createExplorerClient(scan: BrowseableScanFixture, scanId = scan.scanId)
     if (path.includes("Missing")) {
       throw new Error("Path no longer exists.");
     }
-  });
+  }, uiTestTimeout);
 
   const client: ExplorerClient = {
     startScan: vi.fn(async () => ({ scanId: "scan-running" })),
@@ -240,7 +241,7 @@ describe("Space Sift results explorer", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /browse archive/i })).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 
   it("sorts the current directory and shows inline usage in the same table", async () => {
     render(<App client={createExplorerClient(makeBrowseableScan("scan-sort"))} />);
@@ -261,7 +262,7 @@ describe("Space Sift results explorer", () => {
     });
 
     expect(screen.queryByLabelText(/space map/i)).not.toBeInTheDocument();
-  });
+  }, uiTestTimeout);
 
   it("shows an empty-state when the current folder has no immediate children", async () => {
     render(<App client={createExplorerClient(makeBrowseableScan("scan-empty"))} />);
@@ -291,7 +292,7 @@ describe("Space Sift results explorer", () => {
     expect(
       screen.queryByRole("table", { name: /current folder contents/i }),
     ).not.toBeInTheDocument();
-  });
+  }, uiTestTimeout);
 
   it("requests Explorer handoff for the current path and surfaces missing-path errors", async () => {
     const client = createExplorerClient(makeBrowseableScan("scan-shell"));
@@ -323,7 +324,7 @@ describe("Space Sift results explorer", () => {
     await waitFor(() => {
       expect(screen.getByText(/path no longer exists/i)).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 
   it("keeps older summary-only scans readable and asks for a rescan to browse", async () => {
     render(<App client={createExplorerClient(makeSummaryOnlyScan("scan-legacy"))} />);

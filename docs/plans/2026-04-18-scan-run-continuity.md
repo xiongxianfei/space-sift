@@ -428,7 +428,7 @@ This initiative is proceeding now because the user explicitly requested the cont
 - 2026-04-18: planning-only turn. No implementation, build, lint, or test commands were run while drafting and revising this plan.
 - 2026-04-18: planning inputs reviewed included:
   - `AGENTS.md`
-  - `.codex/CONSTITUTION.md`
+  - `CONSTITUTION.md`
   - `.codex/PLANS.md`
   - `docs/plan.md`
   - `docs/proposals/2026-04-18-scan-resumption-and-run-clarity-proposal.md`

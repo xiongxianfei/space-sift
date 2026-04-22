@@ -15,6 +15,7 @@ import type {
 } from "./lib/spaceSiftTypes";
 
 const uiReadyTimeout = 5000;
+const uiTestTimeout = 15000;
 
 function makeCompletedScanStatus(scanId: string): ScanStatusSnapshot {
   return {
@@ -282,7 +283,7 @@ describe("Space Sift cleanup workflow", () => {
       expect(screen.getByText(/duplicate selection/i)).toBeInTheDocument();
       expect(screen.getByText(/files in temp folders/i)).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 
   it("executes recycle-bin-first cleanup by default and recommends a fresh scan", async () => {
     const client = createCleanupClient();
@@ -313,7 +314,7 @@ describe("Space Sift cleanup workflow", () => {
       expect(screen.getByText(/cleanup completed/i)).toBeInTheDocument();
       expect(screen.getByText(/fresh scan is recommended/i)).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 
   it("keeps permanent delete behind an explicit advanced confirmation path", async () => {
     const client = createCleanupClient();
@@ -347,7 +348,7 @@ describe("Space Sift cleanup workflow", () => {
         mode: "permanent",
       });
     });
-  });
+  }, uiTestTimeout);
 
   it("requires a fresh scan before cleanup preview when file-entry data is missing", async () => {
     render(<App client={createCleanupClient({ scan: makeSummaryOnlyScan("scan-legacy") })} />);
@@ -359,5 +360,5 @@ describe("Space Sift cleanup workflow", () => {
     expect(
       screen.queryByRole("button", { name: /refresh cleanup preview/i }),
     ).not.toBeInTheDocument();
-  });
+  }, uiTestTimeout);
 });

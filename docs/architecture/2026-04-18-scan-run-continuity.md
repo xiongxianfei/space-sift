@@ -10,7 +10,7 @@ Draft
 - Spec: [space-sift-scan-run-continuity.md](../../specs/space-sift-scan-run-continuity.md)
 - Active plan context: [2026-04-16-scan-progress-and-active-run-ux.md](../plans/2026-04-16-scan-progress-and-active-run-ux.md)
 - Prior scan architecture context: [2026-04-16-fast-safe-scan-architecture.md](../plans/2026-04-16-fast-safe-scan-architecture.md)
-- Governing rules: [AGENTS.md](../../AGENTS.md), [.codex/CONSTITUTION.md](../../.codex/CONSTITUTION.md)
+- Governing rules: [AGENTS.md](../../AGENTS.md), [CONSTITUTION.md](../../CONSTITUTION.md)
 
 ## Summary
 

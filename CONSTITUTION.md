@@ -9,7 +9,7 @@
 ## 2) Source-of-truth order
 
 - 1. Direct user request.
-- 2. `.codex/CONSTITUTION.md`.
+- 2. `CONSTITUTION.md`.
 - 3. Approved feature specs in `specs/*.md`.
 - 4. Active architecture decisions in approved plans or spec-owned architecture notes where they define boundaries.
 - 5. Matching test specs in `specs/*.test.md`.

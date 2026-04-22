@@ -25,7 +25,7 @@ Current active initiatives cover large-scan UX clarity and history/duplicate rev
 
 ## 5. Context
 
-- `AGENTS.md` and `.codex/CONSTITUTION.md` require behavior changes to flow through proposal/spec/test-spec/plan before implementation.
+- `AGENTS.md` and `CONSTITUTION.md` require behavior changes to flow through proposal/spec/test-spec/plan before implementation.
 - `docs/plan.md` already shows two active plans that correspond to near-term scan UX work:
   - `docs/plans/2026-04-16-scan-progress-and-active-run-ux.md`
   - `docs/plans/2026-04-16-history-and-duplicate-review-clarity.md`

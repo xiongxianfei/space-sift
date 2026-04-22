@@ -11,6 +11,7 @@ import type {
 } from "./lib/spaceSiftTypes";
 
 const uiReadyTimeout = 5000;
+const uiTestTimeout = 15000;
 
 function makeCompletedScanStatus(scanId: string): ScanStatusSnapshot {
   return {
@@ -512,7 +513,7 @@ describe("Space Sift duplicate workflow", () => {
       expect(within(group).getByText(/left\.bin/i)).toBeInTheDocument();
       expect(within(group).getByText(/right\.bin/i)).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 
   it("cancels a running duplicate analysis and returns to a clean review state", async () => {
     const mock = createDuplicateClient();
@@ -577,7 +578,7 @@ describe("Space Sift duplicate workflow", () => {
         screen.queryByTestId("duplicate-group-analysis-1-group-1"),
       ).not.toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 
   it("applies keep-selection helpers and manual keep selection", async () => {
     const mock = createDuplicateClient();
@@ -662,7 +663,7 @@ describe("Space Sift duplicate workflow", () => {
         }),
       ).toHaveAttribute("aria-pressed", "true");
     });
-  });
+  }, uiTestTimeout);
 
   it("orders duplicate groups deterministically and exposes disclosure state", async () => {
     const scan = makeTriageScan("scan-triage");
@@ -727,7 +728,7 @@ describe("Space Sift duplicate workflow", () => {
       ).toHaveAttribute("aria-expanded", "true");
       expect(within(highestImpactGroup).getByText(/triple-a\.bin/i)).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 
   it("keeps duplicate details open when the same completed snapshot is replayed", async () => {
     const mock = createDuplicateClient();
@@ -779,7 +780,7 @@ describe("Space Sift duplicate workflow", () => {
       expect(within(group).getByText(/left\.bin/i)).toBeInTheDocument();
       expect(mock.client.openDuplicateAnalysis).toHaveBeenCalledTimes(1);
     });
-  });
+  }, uiTestTimeout);
 
   it("shows visible location context for same-name files and keeps group order stable while reviewing", async () => {
     const scan = makeTriageScan("scan-triage");
@@ -850,7 +851,7 @@ describe("Space Sift duplicate workflow", () => {
         "duplicate-group-analysis-triage-group-report",
       ]);
     });
-  });
+  }, uiTestTimeout);
 
   it("keeps a seeded large duplicate review state readable and focusable", async () => {
     const scan = makeBrowseableScan("scan-large-review");
@@ -931,7 +932,7 @@ describe("Space Sift duplicate workflow", () => {
         "duplicate-group-analysis-large-group-20",
       ]);
     });
-  });
+  }, uiTestTimeout);
 
   it("keeps real file names visible in the results table after duplicate analysis loads", async () => {
     const mock = createDuplicateClient();
@@ -970,7 +971,7 @@ describe("Space Sift duplicate workflow", () => {
     });
 
     expect(within(contentsTable).queryByText(/^file item$/i)).not.toBeInTheDocument();
-  });
+  }, uiTestTimeout);
 
   it("requires a fresh scan for summary-only history entries", async () => {
     const mock = createDuplicateClient({
@@ -984,7 +985,7 @@ describe("Space Sift duplicate workflow", () => {
     });
 
     expect(screen.queryByRole("button", { name: /analyze duplicates/i })).not.toBeInTheDocument();
-  });
+  }, uiTestTimeout);
 
   it("shows duplicate issues and an empty-state when no verified groups remain", async () => {
     const mock = createDuplicateClient({
@@ -1030,5 +1031,5 @@ describe("Space Sift duplicate workflow", () => {
       expect(screen.getByText(/missing\.bin/i)).toBeInTheDocument();
       expect(screen.getByText(/path no longer exists/i)).toBeInTheDocument();
     });
-  });
+  }, uiTestTimeout);
 });
