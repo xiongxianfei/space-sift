@@ -30,6 +30,17 @@ function createIdleClient(): SpaceSiftClient {
         completedScanId: null,
       };
     },
+    async getWorkspaceRestoreContext() {
+      return null;
+    },
+    async saveWorkspaceRestoreContext({ lastWorkspace, lastOpenedScanId }) {
+      return {
+        schemaVersion: 1,
+        lastWorkspace,
+        lastOpenedScanId,
+        updatedAt: "2026-04-22T10:00:00Z",
+      };
+    },
     async listScanHistory() {
       return [];
     },

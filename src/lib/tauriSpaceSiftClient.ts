@@ -15,6 +15,8 @@ import type {
   ScanRunSummary,
   ScanStatusSnapshot,
   StartScanOptions,
+  WorkspaceRestoreContext,
+  WorkspaceRestoreContextInput,
 } from "./spaceSiftTypes";
 
 export const tauriSpaceSiftClient: SpaceSiftClient = {
@@ -29,6 +31,12 @@ export const tauriSpaceSiftClient: SpaceSiftClient = {
   },
   async getScanStatus() {
     return invoke<ScanStatusSnapshot>("get_scan_status");
+  },
+  async getWorkspaceRestoreContext() {
+    return invoke<WorkspaceRestoreContext | null>("get_workspace_restore_context");
+  },
+  async saveWorkspaceRestoreContext(input: WorkspaceRestoreContextInput) {
+    return invoke<WorkspaceRestoreContext>("save_workspace_restore_context", { input });
   },
   async listScanHistory() {
     return invoke<ScanHistoryEntry[]>("list_scan_history");

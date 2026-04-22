@@ -308,6 +308,13 @@ function createMockClient(options?: {
       );
     }),
     getScanStatus: vi.fn(async () => makeIdleSnapshot()),
+    getWorkspaceRestoreContext: vi.fn(async () => null),
+    saveWorkspaceRestoreContext: vi.fn(async ({ lastWorkspace, lastOpenedScanId }) => ({
+      schemaVersion: 1,
+      lastWorkspace,
+      lastOpenedScanId,
+      updatedAt: "2026-04-22T10:00:00Z",
+    })),
     listScanHistory: vi.fn(async () => history),
     openScanHistory: vi.fn(async (scanId: string) => {
       const scan = scansById[scanId];

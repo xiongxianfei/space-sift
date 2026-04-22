@@ -3,9 +3,12 @@
 This file tracks active, blocked, done, and superseded plans.
 
 ## Draft
-- none yet
+- none currently
 
 ## Active
+- [2026-04-22-space-sift-workspace-navigation-ui.md](plans/2026-04-22-space-sift-workspace-navigation-ui.md)
+  - status: active
+  - scope: introduce the workspace shell, startup restoration, contractual auto-switches, and shell-level global status for the advanced UI initiative without silently replacing active UI contracts
 - [2026-04-16-history-and-duplicate-review-clarity.md](plans/2026-04-16-history-and-duplicate-review-clarity.md)
   - status: active
   - scope: make saved-scan review and duplicate triage clearer by improving

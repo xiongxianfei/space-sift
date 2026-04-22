@@ -8,6 +8,7 @@ use scan_core::{
     ScanRunStatus, ScanRunSummary, DEFAULT_SCAN_RUN_PRIVACY_SCOPE_ID,
     SCAN_RESUME_ENGINE_SUPPORTED,
 };
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -33,11 +34,29 @@ const REASON_HEARTBEAT_STALE: &str = "HEARTBEAT_STALE";
 const REASON_RUN_ABANDONED: &str = "RUN_ABANDONED";
 const REASON_USER_CANCELLED: &str = "USER_CANCELLED";
 const REASON_RETENTION_EXPIRED: &str = "RETENTION_EXPIRED";
+const WORKSPACE_RESTORE_CONTEXT_SCHEMA_VERSION: i64 = 1;
+const WORKSPACE_RESTORE_CONTEXT_SINGLETON_KEY: i64 = 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurgedScanRuns {
     pub purged_count: usize,
     pub deleted_run_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRestoreContext {
+    pub schema_version: i64,
+    pub last_workspace: String,
+    pub last_opened_scan_id: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceRestoreContextInput {
+    pub last_workspace: String,
+    pub last_opened_scan_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -188,6 +207,14 @@ impl HistoryStore {
                     completed_count INTEGER NOT NULL,
                     failed_count INTEGER NOT NULL,
                     execution_json TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS workspace_restore_context (
+                    singleton_key INTEGER PRIMARY KEY CHECK (singleton_key = 1),
+                    schema_version INTEGER NOT NULL,
+                    last_workspace TEXT NOT NULL,
+                    last_opened_scan_id TEXT,
+                    updated_at TEXT NOT NULL
                 );
                 "#,
             )
@@ -649,6 +676,86 @@ impl HistoryStore {
             }),
             Err(error) => Err(HistoryStoreError::Persistence(error.to_string())),
         }
+    }
+
+    pub fn load_workspace_restore_context(
+        &self,
+    ) -> Result<Option<WorkspaceRestoreContext>, HistoryStoreError> {
+        self.initialize()?;
+        let connection = self.open_connection()?;
+        let row = connection.query_row(
+            r#"
+            SELECT schema_version,
+                   last_workspace,
+                   last_opened_scan_id,
+                   updated_at
+            FROM workspace_restore_context
+            WHERE singleton_key = ?1;
+            "#,
+            rusqlite::params![WORKSPACE_RESTORE_CONTEXT_SINGLETON_KEY],
+            |row| {
+                Ok((
+                    row.get::<_, rusqlite::types::Value>(0)?,
+                    row.get::<_, rusqlite::types::Value>(1)?,
+                    row.get::<_, rusqlite::types::Value>(2)?,
+                    row.get::<_, rusqlite::types::Value>(3)?,
+                ))
+            },
+        );
+
+        match row {
+            Ok(raw) => Ok(parse_workspace_restore_context_row(raw)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(HistoryStoreError::Persistence(error.to_string())),
+        }
+    }
+
+    pub fn save_workspace_restore_context(
+        &self,
+        input: &WorkspaceRestoreContextInput,
+    ) -> Result<WorkspaceRestoreContext, HistoryStoreError> {
+        self.initialize()?;
+
+        let context = WorkspaceRestoreContext {
+            schema_version: WORKSPACE_RESTORE_CONTEXT_SCHEMA_VERSION,
+            last_workspace: normalize_workspace_name(&input.last_workspace).ok_or_else(|| {
+                HistoryStoreError::Persistence(format!(
+                    "unsupported workspace restore context: {}",
+                    input.last_workspace
+                ))
+            })?,
+            last_opened_scan_id: normalize_optional_text(input.last_opened_scan_id.as_deref()),
+            updated_at: self.now_timestamp(),
+        };
+
+        let connection = self.open_connection()?;
+        connection
+            .execute(
+                r#"
+                INSERT INTO workspace_restore_context (
+                    singleton_key,
+                    schema_version,
+                    last_workspace,
+                    last_opened_scan_id,
+                    updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5)
+                ON CONFLICT(singleton_key) DO UPDATE SET
+                    schema_version = excluded.schema_version,
+                    last_workspace = excluded.last_workspace,
+                    last_opened_scan_id = excluded.last_opened_scan_id,
+                    updated_at = excluded.updated_at;
+                "#,
+                rusqlite::params![
+                    WORKSPACE_RESTORE_CONTEXT_SINGLETON_KEY,
+                    context.schema_version,
+                    context.last_workspace,
+                    context.last_opened_scan_id,
+                    context.updated_at
+                ],
+            )
+            .map_err(|error| HistoryStoreError::Persistence(error.to_string()))?;
+
+        Ok(context)
     }
 
     pub fn list_scan_runs(&self) -> Result<Vec<ScanRunSummary>, HistoryStoreError> {
@@ -1258,6 +1365,73 @@ fn load_scan_run_detail(
         has_resume,
         can_resume,
     })
+}
+
+fn parse_workspace_restore_context_row(
+    row: (
+        rusqlite::types::Value,
+        rusqlite::types::Value,
+        rusqlite::types::Value,
+        rusqlite::types::Value,
+    ),
+) -> Option<WorkspaceRestoreContext> {
+    let (schema_version, last_workspace, last_opened_scan_id, updated_at) = row;
+
+    let schema_version = match schema_version {
+        rusqlite::types::Value::Integer(value)
+            if value == WORKSPACE_RESTORE_CONTEXT_SCHEMA_VERSION =>
+        {
+            value
+        }
+        _ => return None,
+    };
+    let last_workspace = normalize_workspace_name(value_as_text(last_workspace)?.as_str())?;
+    let last_opened_scan_id = value_as_optional_text(last_opened_scan_id)?;
+    let updated_at = normalize_required_text(value_as_text(updated_at)?.as_str())?;
+
+    Some(WorkspaceRestoreContext {
+        schema_version,
+        last_workspace,
+        last_opened_scan_id,
+        updated_at,
+    })
+}
+
+fn normalize_workspace_name(value: &str) -> Option<String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "overview" | "scan" | "history" | "explorer" | "duplicates" | "cleanup" | "safety" => {
+            Some(value.trim().to_ascii_lowercase())
+        }
+        _ => None,
+    }
+}
+
+fn value_as_text(value: rusqlite::types::Value) -> Option<String> {
+    match value {
+        rusqlite::types::Value::Text(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn value_as_optional_text(value: rusqlite::types::Value) -> Option<Option<String>> {
+    match value {
+        rusqlite::types::Value::Null => Some(None),
+        rusqlite::types::Value::Text(value) => Some(normalize_optional_text(Some(&value))),
+        _ => None,
+    }
+}
+
+fn normalize_required_text(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+    value.and_then(normalize_required_text)
 }
 
 fn load_scan_run_header(
@@ -3789,5 +3963,138 @@ mod tests {
 
         assert!(detail.has_resume);
         assert!(!detail.can_resume);
+    }
+
+    #[test]
+    fn workspace_restore_context_round_trip() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&["2026-04-22T10:00:00Z"]),
+        );
+
+        let saved = store
+            .save_workspace_restore_context(&WorkspaceRestoreContextInput {
+                last_workspace: "explorer".to_string(),
+                last_opened_scan_id: Some("scan-1".to_string()),
+            })
+            .expect("restore context should save");
+
+        assert_eq!(
+            saved,
+            WorkspaceRestoreContext {
+                schema_version: 1,
+                last_workspace: "explorer".to_string(),
+                last_opened_scan_id: Some("scan-1".to_string()),
+                updated_at: "2026-04-22T10:00:00Z".to_string(),
+            }
+        );
+        assert_eq!(
+            store
+                .load_workspace_restore_context()
+                .expect("restore context should load"),
+            Some(saved.clone())
+        );
+
+        let connection = store.open_connection().expect("db connection");
+        let mut statement = connection
+            .prepare("PRAGMA table_info(workspace_restore_context);")
+            .expect("table info query");
+        let column_names = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("table info rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("column names");
+
+        assert_eq!(
+            column_names,
+            vec![
+                "singleton_key".to_string(),
+                "schema_version".to_string(),
+                "last_workspace".to_string(),
+                "last_opened_scan_id".to_string(),
+                "updated_at".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_restore_context_overwrites_singleton_row() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&["2026-04-22T10:00:00Z", "2026-04-22T10:05:00Z"]),
+        );
+
+        store
+            .save_workspace_restore_context(&WorkspaceRestoreContextInput {
+                last_workspace: "explorer".to_string(),
+                last_opened_scan_id: Some("scan-1".to_string()),
+            })
+            .expect("initial restore context should save");
+        let overwritten = store
+            .save_workspace_restore_context(&WorkspaceRestoreContextInput {
+                last_workspace: "history".to_string(),
+                last_opened_scan_id: None,
+            })
+            .expect("replacement restore context should save");
+
+        assert_eq!(
+            overwritten,
+            WorkspaceRestoreContext {
+                schema_version: 1,
+                last_workspace: "history".to_string(),
+                last_opened_scan_id: None,
+                updated_at: "2026-04-22T10:05:00Z".to_string(),
+            }
+        );
+        assert_eq!(
+            store
+                .load_workspace_restore_context()
+                .expect("restore context should load"),
+            Some(overwritten)
+        );
+
+        let connection = store.open_connection().expect("db connection");
+        let row_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM workspace_restore_context;",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("restore row count");
+
+        assert_eq!(row_count, 1);
+    }
+
+    #[test]
+    fn workspace_restore_context_rejects_unsupported_schema_version() {
+        let fixture = tempdir().expect("db fixture");
+        let store = HistoryStore::with_now(
+            fixture.path().join("history.db"),
+            scripted_clock(&["2026-04-22T10:00:00Z"]),
+        );
+
+        store
+            .save_workspace_restore_context(&WorkspaceRestoreContextInput {
+                last_workspace: "explorer".to_string(),
+                last_opened_scan_id: Some("scan-1".to_string()),
+            })
+            .expect("restore context should save");
+
+        let connection = store.open_connection().expect("db connection");
+        connection
+            .execute(
+                "UPDATE workspace_restore_context SET schema_version = ?1 WHERE singleton_key = 1;",
+                rusqlite::params![2_i64],
+            )
+            .expect("schema version update");
+
+        assert_eq!(
+            store
+                .load_workspace_restore_context()
+                .expect("restore context should load"),
+            None
+        );
     }
 }

@@ -179,6 +179,13 @@ function createExplorerClient(scan: BrowseableScanFixture, scanId = scan.scanId)
     cancelActiveScan: vi.fn(async () => {}),
     cancelScanRun: vi.fn(async () => {}),
     getScanStatus: vi.fn(async () => makeCompletedStatus(scanId)),
+    getWorkspaceRestoreContext: vi.fn(async () => null),
+    saveWorkspaceRestoreContext: vi.fn(async ({ lastWorkspace, lastOpenedScanId }) => ({
+      schemaVersion: 1,
+      lastWorkspace,
+      lastOpenedScanId,
+      updatedAt: "2026-04-22T10:00:00Z",
+    })),
     listScanHistory: vi.fn(async () => [historyEntry]),
     openScanHistory: vi.fn(async () => scan),
     listScanRuns: vi.fn(async () => []),

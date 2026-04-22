@@ -9,6 +9,7 @@ cleanup-core = { path = "../cleanup-core" }
 duplicates-core = { path = "../duplicates-core" }
 rusqlite = { workspace = true }
 scan-core = { path = "../scan-core" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
