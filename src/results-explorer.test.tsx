@@ -172,7 +172,7 @@ function createExplorerClient(scan: BrowseableScanFixture, scanId = scan.scanId)
     if (path.includes("Missing")) {
       throw new Error("Path no longer exists.");
     }
-  }, uiTestTimeout);
+  });
 
   const client: ExplorerClient = {
     startScan: vi.fn(async () => ({ scanId: "scan-running" })),
