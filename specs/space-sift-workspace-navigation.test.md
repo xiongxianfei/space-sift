@@ -2,7 +2,7 @@
 
 ## Status
 
-draft
+approved
 
 ## Related spec and plan
 
@@ -558,8 +558,8 @@ draft
 
 ## Next artifacts
 
-- `test-spec-review` for this test spec
-- `implement` for `M1` only after this test spec is approved or activated as the governing proof surface
+- `implement` for the remaining milestones in [2026-04-22-space-sift-workspace-navigation-ui.md](/D:/Data/20260415-space-sift/docs/plans/2026-04-22-space-sift-workspace-navigation-ui.md:1)
+- later `verify` once the planned implementation milestones are complete
 
 ## Follow-on artifacts
 
@@ -567,8 +567,8 @@ None yet.
 
 ## Readiness
 
-This test spec is `draft` and ready for `test-spec-review`.
-
-It is not ready for `implement` yet. Implementation should wait until this
-test spec is reviewed and treated as the active proof surface for the
+This test spec is `approved` and active as the governing proof surface for the
 workspace-navigation milestones.
+
+It is ready for downstream `implement`, `code-review`, and `verify` work under
+the active execution plan.

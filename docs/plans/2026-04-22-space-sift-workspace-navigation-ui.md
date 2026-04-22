@@ -314,6 +314,7 @@ them.
 - 2026-04-22: `M1` persists only the approved minimal restore-context record: `schema_version`, `last_workspace`, `last_opened_scan_id`, and `updated_at`.
 - 2026-04-22: Invalid or unsupported restore-context rows are treated as `no restore context` at the storage and shell-command boundary instead of surfacing a fatal startup dependency.
 - 2026-04-22: `M2` keeps contractual auto-switch behavior out of scope; explicit history reopen and scan-completion flows still require manual `Explorer` navigation until `M3` implements `N2` and `N3`.
+- 2026-04-22: After the `M2` review found stale proof-surface metadata, the workspace-navigation test spec was normalized to `approved` so the governing artifact state matches the implemented milestone state.
 
 ## Surprises and discoveries
 
@@ -349,6 +350,10 @@ them.
   - passed: `7 files, 52 tests`
 - `npm run build`
   - passed
+- Post-`M2` review metadata correction:
+  - `git diff --check -- specs/space-sift-workspace-navigation.test.md docs/plans/2026-04-22-space-sift-workspace-navigation-ui.md`
+    - passed with only CRLF conversion warnings
+  - no runtime validation commands were needed because the follow-up change only normalized test-spec and plan metadata
 
 ## Outcome and retrospective
 
