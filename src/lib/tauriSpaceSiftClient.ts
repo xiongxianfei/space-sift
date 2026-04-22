@@ -11,15 +11,21 @@ import type {
   DuplicateStatusSnapshot,
   PrivilegedCleanupCapability,
   ScanHistoryEntry,
+  ScanRunDetail,
+  ScanRunSummary,
   ScanStatusSnapshot,
+  StartScanOptions,
 } from "./spaceSiftTypes";
 
 export const tauriSpaceSiftClient: SpaceSiftClient = {
-  async startScan(rootPath) {
-    return invoke<{ scanId: string }>("start_scan", { rootPath });
+  async startScan(rootPath, options?: StartScanOptions) {
+    return invoke<{ scanId: string }>("start_scan", { rootPath, options });
   },
   async cancelActiveScan() {
     await invoke("cancel_active_scan");
+  },
+  async cancelScanRun(runId) {
+    await invoke("cancel_scan_run", { runId });
   },
   async getScanStatus() {
     return invoke<ScanStatusSnapshot>("get_scan_status");
@@ -30,8 +36,20 @@ export const tauriSpaceSiftClient: SpaceSiftClient = {
   async openScanHistory(scanId) {
     return invoke<CompletedScan>("open_scan_history", { scanId });
   },
+  async listScanRuns() {
+    return invoke<ScanRunSummary[]>("list_scan_runs");
+  },
+  async openScanRun(runId, page, pageSize) {
+    return invoke<ScanRunDetail>("open_scan_run", { runId, page, pageSize });
+  },
+  async resumeScanRun(runId) {
+    return invoke<{ runId: string }>("resume_scan_run", { runId });
+  },
   async startDuplicateAnalysis(scanId) {
     return invoke<{ analysisId: string }>("start_duplicate_analysis", { scanId });
+  },
+  async cancelDuplicateAnalysis() {
+    await invoke("cancel_duplicate_analysis");
   },
   async getDuplicateAnalysisStatus() {
     return invoke<DuplicateStatusSnapshot>("get_duplicate_analysis_status");

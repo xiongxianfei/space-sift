@@ -25,6 +25,9 @@ function makeCompletedScanStatus(scanId: string): ScanStatusSnapshot {
     filesDiscovered: 5,
     directoriesDiscovered: 3,
     bytesProcessed: 160,
+    startedAt: "2026-04-15T10:59:00Z",
+    updatedAt: "2026-04-15T11:00:00Z",
+    currentPath: "C:\\Users\\xiongxianfei\\Downloads",
     message: "Scan complete.",
     completedScanId: scanId,
   };
@@ -221,10 +224,17 @@ function createCleanupClient(options?: {
   const client: SpaceSiftClient = {
     startScan: vi.fn(async () => ({ scanId: "scan-running" })),
     cancelActiveScan: vi.fn(async () => {}),
+    cancelScanRun: vi.fn(async () => {}),
     getScanStatus: vi.fn(async () => makeCompletedScanStatus(scan.scanId)),
     listScanHistory: vi.fn(async () => [makeHistoryEntry(scan.scanId)]),
     openScanHistory: vi.fn(async () => scan),
+    listScanRuns: vi.fn(async () => []),
+    openScanRun: vi.fn(async () => {
+      throw new Error("no scan run");
+    }),
+    resumeScanRun: vi.fn(async () => ({ runId: "run-resumed" })),
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: duplicateAnalysis.analysisId })),
+    cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () =>
       makeCompletedDuplicateStatus(scan.scanId, duplicateAnalysis.analysisId),
     ),

@@ -4,8 +4,7 @@
 duplicate-file cleanup candidates, and reclaiming disk space without blind
 deletion.
 
-The repository is currently in Milestone 6 release hardening. The checked-in app can start a
-recursive scan, report progress, store completed results in local SQLite
+The checked-in app can start a recursive scan, report progress, store completed results in local SQLite
 history, reopen prior scans from the UI, browse stored results with
 breadcrumbs, sorting, and Explorer handoff, run duplicate analysis with
 keep-selection helpers, and build or execute a safe cleanup preview with a
@@ -37,7 +36,7 @@ Implemented in this repository today:
 - SQLite-backed duplicate hash caching with metadata validation
 - SQLite-backed cleanup execution logging
 - Tauri commands for scan progress, cancellation, history loading, duplicate analysis, cleanup preview/execution, protected-path capability reporting, and Explorer handoff
-- a results explorer with folder drill-down, sortable current-folder tables, and a current-level space map
+- a results explorer with folder drill-down, sortable current-folder tables, and inline relative-usage cues
 - a duplicate-analysis workflow that shows only fully verified groups, excluded-path issues, and keep/delete previews
 - a cleanup workflow that combines duplicate delete candidates with a small built-in TOML rule catalog, previews exact file actions, defaults to Recycle Bin execution, and gates permanent delete behind an explicit confirmation toggle
 - frontend tests for the scan, history, results-explorer, duplicate-analysis, and cleanup flows
@@ -74,8 +73,8 @@ This repository follows:
 
 `plan -> spec -> test-spec -> implement -> verify -> docs -> review`
 
-The active execution plan is:
-- `docs/plans/2026-04-15-space-sift-win11-mvp.md`
+The active execution plans are indexed in:
+- `docs/plan.md`
 
 The current feature contract is:
 - `specs/space-sift-mvp.md`
@@ -91,5 +90,7 @@ The current feature contract is:
 - `specs/space-sift-release.md`
 - `specs/space-sift-release.test.md`
 
-Release docs:
+Maintainer docs:
 - `docs/release.md`
+- `docs/duplicate-performance.md`
+- `docs/scan-performance.md`

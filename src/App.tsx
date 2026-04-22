@@ -26,6 +26,7 @@ import type {
   PrivilegedCleanupCapability,
   ScanEntry,
   ScanHistoryEntry,
+  ScanRunSummary,
   ScanStatusSnapshot,
 } from "./lib/spaceSiftTypes";
 
@@ -55,6 +56,7 @@ type BrowseableScan = CompletedScan & {
 };
 
 type DuplicateKeepSelections = Record<string, string>;
+type DuplicateDisclosureState = Record<string, boolean>;
 
 function formatBytes(bytes: number) {
   return `${bytes} bytes`;
@@ -65,8 +67,46 @@ function formatTimestamp(value: string) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
+function formatElapsedWindow(startedAt: string | null, updatedAt: string | null) {
+  if (!startedAt) {
+    return null;
+  }
+
+  const started = new Date(startedAt).getTime();
+  const updated = updatedAt ? new Date(updatedAt).getTime() : started;
+  if (Number.isNaN(started) || Number.isNaN(updated)) {
+    return null;
+  }
+
+  const totalSeconds = Math.max(0, Math.floor((updated - started) / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s active`;
+  }
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return seconds === 0 ? `${minutes}m active` : `${minutes}m ${seconds}s active`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes === 0
+    ? `${hours}h active`
+    : `${hours}h ${remainingMinutes}m active`;
+}
+
 function describeError(error: unknown) {
   if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    typeof error === "object" &&
+    error != null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
     return error.message;
   }
 
@@ -87,16 +127,55 @@ function getPathLabel(path: string) {
   return segments[segments.length - 1] ?? normalized;
 }
 
+function comparePaths(left: string, right: string) {
+  return left.localeCompare(right, undefined, {
+    sensitivity: "base",
+    numeric: true,
+  });
+}
+
+function getRootRelativePath(path: string, rootPath: string) {
+  const normalizedPath = path.replace(/[\\/]+$/, "");
+  const normalizedRoot = rootPath.replace(/[\\/]+$/, "");
+  if (!normalizedPath || !normalizedRoot) {
+    return null;
+  }
+
+  if (!isPathWithinRoot(normalizedPath, normalizedRoot)) {
+    return null;
+  }
+
+  if (normalizedPath.length === normalizedRoot.length) {
+    return "";
+  }
+
+  return normalizedPath.slice(normalizedRoot.length + 1);
+}
+
+function getDuplicateMemberLocationLabel(path: string, rootPath: string) {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const rootRelativePath = getRootRelativePath(normalized, rootPath);
+  if (rootRelativePath != null) {
+    const relativeSegments = rootRelativePath.split(/[\\/]/).filter(Boolean);
+    if (relativeSegments.length <= 1) {
+      return "Scan root";
+    }
+
+    return relativeSegments.slice(0, -1).join("\\");
+  }
+
+  const segments = normalized.split(/[\\/]/).filter(Boolean);
+  if (segments.length <= 1) {
+    return normalized;
+  }
+
+  return segments.slice(0, -1).join("\\");
+}
+
 function compareEntryNames(left: ScanEntry, right: ScanEntry) {
   return (
-    getPathLabel(left.path).localeCompare(getPathLabel(right.path), undefined, {
-      sensitivity: "base",
-      numeric: true,
-    }) ||
-    left.path.localeCompare(right.path, undefined, {
-      sensitivity: "base",
-      numeric: true,
-    })
+    comparePaths(getPathLabel(left.path), getPathLabel(right.path)) ||
+    comparePaths(left.path, right.path)
   );
 }
 
@@ -111,6 +190,26 @@ function sortExplorerEntries(entries: ScanEntry[], sortMode: ExplorerSortMode) {
       compareEntryNames(left, right) ||
       (left.kind === right.kind ? 0 : left.kind === "directory" ? -1 : 1)
     );
+  });
+}
+
+function getSortableTimestamp(value: string) {
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+function sortHistoryEntries(entries: ScanHistoryEntry[]) {
+  return [...entries].sort((left, right) => {
+    const completedDelta =
+      getSortableTimestamp(right.completedAt) - getSortableTimestamp(left.completedAt);
+    if (completedDelta !== 0) {
+      return completedDelta;
+    }
+
+    return left.scanId.localeCompare(right.scanId, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
   });
 }
 
@@ -206,13 +305,27 @@ function chooseMemberByAge(
       return direction === "newest" ? -delta : delta;
     }
 
-    return left.path.localeCompare(right.path, undefined, {
-      sensitivity: "base",
-      numeric: true,
-    });
+    return comparePaths(left.path, right.path);
   });
 
   return ordered[0]?.path ?? "";
+}
+
+function getDuplicateGroupSortPath(group: DuplicateGroup) {
+  return [...group.members]
+    .map((member) => member.path)
+    .sort(comparePaths)[0] ?? group.groupId;
+}
+
+function sortDuplicateGroups(groups: DuplicateGroup[]) {
+  return [...groups].sort((left, right) => {
+    return (
+      right.reclaimableBytes - left.reclaimableBytes ||
+      right.members.length - left.members.length ||
+      comparePaths(getDuplicateGroupSortPath(left), getDuplicateGroupSortPath(right)) ||
+      comparePaths(left.groupId, right.groupId)
+    );
+  });
 }
 
 function resolveKeptPath(group: DuplicateGroup, selections: DuplicateKeepSelections) {
@@ -282,6 +395,7 @@ function App({ client = unsupportedClient }: AppProps) {
   const [duplicateStatus, setDuplicateStatus] =
     useState<DuplicateStatusSnapshot>(idleDuplicateStatus);
   const [history, setHistory] = useState<ScanHistoryEntry[]>([]);
+  const [scanRuns, setScanRuns] = useState<ScanRunSummary[]>([]);
   const [currentScan, setCurrentScan] = useState<CompletedScan | null>(null);
   const [currentExplorerPath, setCurrentExplorerPath] = useState<string | null>(null);
   const [explorerSortMode, setExplorerSortMode] = useState<ExplorerSortMode>("size");
@@ -289,6 +403,10 @@ function App({ client = unsupportedClient }: AppProps) {
     useState<CompletedDuplicateAnalysis | null>(null);
   const [duplicateKeepSelections, setDuplicateKeepSelections] =
     useState<DuplicateKeepSelections>({});
+  const [expandedDuplicateGroups, setExpandedDuplicateGroups] =
+    useState<DuplicateDisclosureState>({});
+  const [historyRootFilter, setHistoryRootFilter] = useState("");
+  const [historyScanIdFilter, setHistoryScanIdFilter] = useState("");
   const [cleanupRules, setCleanupRules] = useState<CleanupRuleDefinition[]>([]);
   const [selectedCleanupRuleIds, setSelectedCleanupRuleIds] = useState<string[]>([]);
   const [cleanupPreview, setCleanupPreview] = useState<CleanupPreview | null>(null);
@@ -297,6 +415,7 @@ function App({ client = unsupportedClient }: AppProps) {
   const [privilegedCapability, setPrivilegedCapability] =
     useState<PrivilegedCleanupCapability | null>(null);
   const [permanentDeleteConfirmed, setPermanentDeleteConfirmed] = useState(false);
+  const [resumeEnabled, setResumeEnabled] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -315,6 +434,7 @@ function App({ client = unsupportedClient }: AppProps) {
       setDuplicateStatus(idleDuplicateStatus);
       setDuplicateAnalysis(null);
       setDuplicateKeepSelections({});
+      setExpandedDuplicateGroups({});
       setSelectedCleanupRuleIds([]);
       setCleanupPreview(null);
       setCleanupExecutionResult(null);
@@ -335,12 +455,26 @@ function App({ client = unsupportedClient }: AppProps) {
     }
   });
 
+  const loadScanRuns = useEffectEvent(async () => {
+    try {
+      const nextRuns = await client.listScanRuns();
+      startTransition(() => {
+        setScanRuns(nextRuns);
+      });
+    } catch (error) {
+      startTransition(() => {
+        setErrorMessage(describeError(error));
+      });
+    }
+  });
+
   const openStoredDuplicateAnalysis = useEffectEvent(async (analysisId: string) => {
     try {
       const result = await client.openDuplicateAnalysis(analysisId);
       startTransition(() => {
         setDuplicateAnalysis(result);
         setDuplicateKeepSelections(buildDefaultKeepSelections(result));
+        setExpandedDuplicateGroups({});
         setDuplicateStatus((currentValue) => ({
           ...currentValue,
           analysisId: result.analysisId,
@@ -375,6 +509,7 @@ function App({ client = unsupportedClient }: AppProps) {
         setDuplicateStatus(idleDuplicateStatus);
         setDuplicateAnalysis(null);
         setDuplicateKeepSelections({});
+        setExpandedDuplicateGroups({});
         setSelectedCleanupRuleIds([]);
         setCleanupPreview(null);
         setCleanupExecutionResult(null);
@@ -404,18 +539,31 @@ function App({ client = unsupportedClient }: AppProps) {
     if (snapshot.state === "completed" && snapshot.completedScanId) {
       void openStoredScan(snapshot.completedScanId);
       void loadHistory();
+      void loadScanRuns();
+    }
+
+    if (snapshot.state === "cancelled" || snapshot.state === "failed") {
+      void loadScanRuns();
     }
   });
 
   const handleDuplicateProgress = useEffectEvent((snapshot: DuplicateStatusSnapshot) => {
     startTransition(() => {
       setDuplicateStatus(snapshot);
+      if (snapshot.state === "cancelled" && snapshot.message) {
+        setNotice(snapshot.message);
+        setErrorMessage(null);
+      }
       if (snapshot.state === "failed" && snapshot.message) {
         setErrorMessage(snapshot.message);
       }
     });
 
     if (snapshot.state === "completed" && snapshot.completedAnalysisId) {
+      if (duplicateAnalysis?.analysisId === snapshot.completedAnalysisId) {
+        return;
+      }
+
       void openStoredDuplicateAnalysis(snapshot.completedAnalysisId);
     }
   });
@@ -430,6 +578,7 @@ function App({ client = unsupportedClient }: AppProps) {
         const [
           initialStatus,
           initialHistory,
+          initialScanRuns,
           initialDuplicateStatus,
           initialCleanupRules,
           capability,
@@ -438,6 +587,7 @@ function App({ client = unsupportedClient }: AppProps) {
         ] = await Promise.all([
           client.getScanStatus(),
           client.listScanHistory(),
+          client.listScanRuns(),
           client.getDuplicateAnalysisStatus(),
           client.listCleanupRules(),
           client.getPrivilegedCleanupCapability(),
@@ -465,6 +615,7 @@ function App({ client = unsupportedClient }: AppProps) {
           setScanStatus(initialStatus);
           setDuplicateStatus(initialDuplicateStatus);
           setHistory(initialHistory);
+          setScanRuns(initialScanRuns);
           setCleanupRules(initialCleanupRules);
           setPrivilegedCapability(capability);
           if (initialStatus.rootPath) {
@@ -523,16 +674,27 @@ function App({ client = unsupportedClient }: AppProps) {
     resetReviewState();
 
     try {
-      const started = await client.startScan(normalizedRoot);
+      const started = await client.startScan(normalizedRoot, { resumeEnabled });
+      const startedAt = new Date().toISOString();
       startTransition(() => {
-        setScanStatus({
-          ...idleScanStatus,
-          scanId: started.scanId,
-          rootPath: normalizedRoot,
-          state: "running",
+        setScanStatus((currentValue) => {
+          if (currentValue.scanId === started.scanId && currentValue.state !== "idle") {
+            return currentValue;
+          }
+
+          return {
+            ...idleScanStatus,
+            scanId: started.scanId,
+            rootPath: normalizedRoot,
+            state: "running",
+            startedAt,
+            updatedAt: startedAt,
+            currentPath: normalizedRoot,
+          };
         });
-        setNotice(`Scanning ${normalizedRoot}`);
+        setNotice((currentValue) => currentValue ?? `Scanning ${normalizedRoot}`);
       });
+      void loadScanRuns();
     } catch (error) {
       startTransition(() => {
         setErrorMessage(describeError(error));
@@ -560,6 +722,53 @@ function App({ client = unsupportedClient }: AppProps) {
   async function handleReopenScan(scanId: string) {
     setErrorMessage(null);
     await openStoredScan(scanId, `Loaded ${scanId} from local history.`);
+  }
+
+  async function handleResumeRun(run: ScanRunSummary) {
+    if (!run.canResume) {
+      setErrorMessage("Interrupted-run resume is unavailable for this run.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setNotice(null);
+    setCurrentScan(null);
+    setCurrentExplorerPath(null);
+    setExplorerSortMode("size");
+    resetReviewState();
+
+    try {
+      const resumed = await client.resumeScanRun(run.header.runId);
+      const resumedAt = new Date().toISOString();
+      startTransition(() => {
+        setRootPath(run.header.rootPath);
+        setScanStatus({
+          ...idleScanStatus,
+          scanId: resumed.runId,
+          rootPath: run.header.rootPath,
+          state: "running",
+          startedAt: resumedAt,
+          updatedAt: resumedAt,
+          currentPath: run.latestSnapshot.currentPath ?? run.header.rootPath,
+          message: `Resuming ${run.header.runId}`,
+        });
+        setNotice(`Resuming ${run.header.rootPath}`);
+      });
+      void loadScanRuns();
+    } catch (error) {
+      setErrorMessage(describeError(error));
+    }
+  }
+
+  async function handleCancelRun(runId: string) {
+    try {
+      await client.cancelScanRun(runId);
+      setNotice(`Cancelled interrupted run ${runId}.`);
+      setErrorMessage(null);
+      void loadScanRuns();
+    } catch (error) {
+      setErrorMessage(describeError(error));
+    }
   }
 
   async function handleOpenInExplorer(path: string) {
@@ -591,6 +800,7 @@ function App({ client = unsupportedClient }: AppProps) {
     setNotice("Running duplicate analysis on the current scan.");
     setDuplicateAnalysis(null);
     setDuplicateKeepSelections({});
+    setExpandedDuplicateGroups({});
     resetCleanupState();
     setDuplicateStatus({
       analysisId: null,
@@ -625,6 +835,21 @@ function App({ client = unsupportedClient }: AppProps) {
     }
   }
 
+  async function handleCancelDuplicateAnalysis() {
+    if (duplicateStatus.state !== "running") {
+      setNotice("No duplicate analysis is running.");
+      return;
+    }
+
+    try {
+      await client.cancelDuplicateAnalysis();
+      setNotice("Duplicate analysis cancellation requested.");
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(describeError(error));
+    }
+  }
+
   function handleBrowsePath(path: string) {
     if (!currentScan || !hasBrowseableEntries(currentScan)) {
       return;
@@ -651,6 +876,13 @@ function App({ client = unsupportedClient }: AppProps) {
     setCleanupPreview(null);
     setCleanupExecutionResult(null);
     setPermanentDeleteConfirmed(false);
+  }
+
+  function handleToggleDuplicateGroup(groupId: string) {
+    setExpandedDuplicateGroups((currentValue) => ({
+      ...currentValue,
+      [groupId]: !currentValue[groupId],
+    }));
   }
 
   function handleToggleCleanupRule(ruleId: string) {
@@ -761,6 +993,36 @@ function App({ client = unsupportedClient }: AppProps) {
   const duplicatePreview = duplicateAnalysis
     ? summarizeDuplicatePreview(duplicateAnalysis, duplicateKeepSelections)
     : { filesMarkedForDeletion: 0, reclaimableBytes: 0 };
+  const orderedDuplicateGroups = duplicateAnalysis
+    ? sortDuplicateGroups(duplicateAnalysis.groups)
+    : [];
+  const isScanRunning = scanStatus.state === "running";
+  const activeScanRoot =
+    (scanStatus.rootPath ?? rootPath.trim()) || "Waiting for scan root";
+  const activeScanPath = scanStatus.currentPath ?? scanStatus.rootPath;
+  const activeScanHeartbeat = scanStatus.updatedAt
+    ? formatTimestamp(scanStatus.updatedAt)
+    : "Waiting for the first live update.";
+  const activeScanStarted = scanStatus.startedAt ? formatTimestamp(scanStatus.startedAt) : null;
+  const activeScanElapsed = formatElapsedWindow(scanStatus.startedAt, scanStatus.updatedAt);
+  const normalizedHistoryRootFilter = historyRootFilter.trim().toLowerCase();
+  const normalizedHistoryScanIdFilter = historyScanIdFilter.trim().toLowerCase();
+  const visibleHistory = sortHistoryEntries(history).filter((entry) => {
+    const matchesRoot =
+      normalizedHistoryRootFilter.length === 0 ||
+      entry.rootPath.toLowerCase().includes(normalizedHistoryRootFilter);
+    const matchesScanId =
+      normalizedHistoryScanIdFilter.length === 0 ||
+      entry.scanId.toLowerCase().includes(normalizedHistoryScanIdFilter);
+    return matchesRoot && matchesScanId;
+  });
+  const interruptedRuns = [...scanRuns]
+    .filter((run) => run.header.status === "stale" || run.header.status === "abandoned")
+    .sort(
+      (left, right) =>
+        getSortableTimestamp(right.header.lastSnapshotAt) -
+        getSortableTimestamp(left.header.lastSnapshotAt),
+    );
 
   return (
     <main className="shell">
@@ -800,6 +1062,17 @@ function App({ client = unsupportedClient }: AppProps) {
                 placeholder="C:\\Users\\xiongxianfei\\Downloads"
               />
             </label>
+            <details className="field">
+              <summary>Advanced scan options</summary>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={resumeEnabled}
+                  onChange={(event) => setResumeEnabled(event.target.checked)}
+                />{" "}
+                Enable interrupted-run resume
+              </label>
+            </details>
             <div className="action-row">
               <button type="submit" className="primary-button" disabled={isSubmitting}>
                 Start scan
@@ -843,25 +1116,123 @@ function App({ client = unsupportedClient }: AppProps) {
           {history.length === 0 ? (
             <p className="empty-state">No completed scans are stored yet.</p>
           ) : (
-            <ul className="history-list">
-              {history.map((entry) => (
-                <li key={entry.scanId}>
-                  <div className="history-meta">
-                    <strong>{entry.rootPath}</strong>
-                    <span>{formatTimestamp(entry.completedAt)}</span>
-                    <span>{formatBytes(entry.totalBytes)}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void handleReopenScan(entry.scanId)}
-                  >
-                    Reopen scan {entry.scanId}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              <div className="history-filters">
+                <div className="history-filter-grid">
+                  <label className="field">
+                    <span>Filter by root path</span>
+                    <input
+                      type="text"
+                      value={historyRootFilter}
+                      onChange={(event) => setHistoryRootFilter(event.target.value)}
+                      placeholder="C:\\Users\\xiongxianfei\\Downloads"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Filter by scan ID</span>
+                    <input
+                      type="text"
+                      value={historyScanIdFilter}
+                      onChange={(event) => setHistoryScanIdFilter(event.target.value)}
+                      placeholder="scan-2"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {visibleHistory.length === 0 ? (
+                <p className="empty-state">No saved scans match the current filters.</p>
+              ) : (
+                <ul className="history-list">
+                  {visibleHistory.map((entry) => {
+                    const isLoadedResult = currentScan?.scanId === entry.scanId;
+
+                    return (
+                      <li
+                        key={entry.scanId}
+                        className={`history-entry ${isLoadedResult ? "is-loaded" : ""}`}
+                        aria-current={isLoadedResult ? "true" : undefined}
+                      >
+                        <div className="history-meta">
+                          <div className="history-title-row">
+                            <strong>{entry.rootPath}</strong>
+                            {isLoadedResult ? <span className="history-badge">Loaded result</span> : null}
+                          </div>
+                          <span>{formatTimestamp(entry.completedAt)}</span>
+                          <span>{formatBytes(entry.totalBytes)}</span>
+                          <span className="history-id">Scan ID: {entry.scanId}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => void handleReopenScan(entry.scanId)}
+                        >
+                          Reopen scan {entry.scanId}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </>
           )}
+
+          {interruptedRuns.length > 0 ? (
+            <>
+              <div className="panel-header">
+                <h3>Interrupted runs</h3>
+                <p>Recovered runs stay visible until you resume them or cancel them.</p>
+              </div>
+              <ul className="history-list">
+                {interruptedRuns.map((run) => (
+                  <li key={run.header.runId} className="history-entry">
+                    <div className="history-meta">
+                      <div className="history-title-row">
+                        <strong>{run.header.rootPath}</strong>
+                        <span className="history-badge">{run.header.status}</span>
+                        {run.hasResume ? (
+                          <span className="history-badge">
+                            {run.canResume ? "Resume available" : "Resume unavailable"}
+                          </span>
+                        ) : null}
+                      </div>
+                      <span>Created {formatTimestamp(run.createdAt)}</span>
+                      <span>{formatTimestamp(run.header.lastSnapshotAt)}</span>
+                      <span>Seq {run.seq}</span>
+                      <span>{run.itemsScanned} items scanned</span>
+                      <span>{run.errorsCount} errors</span>
+                      <span>
+                        {run.progressPercent == null
+                          ? "Progress pending"
+                          : `${Math.round(run.progressPercent)}% progress`}
+                      </span>
+                      <span>{run.scanRateItemsPerSec.toFixed(1)} items/s</span>
+                      <span className="history-id">Run ID: {run.header.runId}</span>
+                    </div>
+                    <div className="action-row">
+                      {run.hasResume ? (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={!run.canResume || scanStatus.state === "running"}
+                          onClick={() => void handleResumeRun(run)}
+                        >
+                          Resume run {run.header.runId}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void handleCancelRun(run.header.runId)}
+                      >
+                        Cancel run {run.header.runId}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
         </section>
       </section>
 
@@ -880,7 +1251,71 @@ function App({ client = unsupportedClient }: AppProps) {
         </div>
       </section>
 
-      {currentScan ? (
+      {isScanRunning ? (
+        <section className="panel active-scan-panel" aria-live="polite">
+          <div className="panel-header">
+            <h2>Active scan</h2>
+            <p>
+              Progress stays indeterminate while Space Sift discovers more files and
+              folders. Previous completed scans stay in Recent scans until this run
+              finishes.
+            </p>
+          </div>
+
+          <div className="active-scan-grid">
+            <article className="summary-card">
+              <span>Scan root</span>
+              <strong>{activeScanRoot}</strong>
+            </article>
+            <article className="summary-card">
+              <span>Current activity</span>
+              <strong>{activeScanPath ? getPathLabel(activeScanPath) : "Waiting for path context"}</strong>
+              <p className="current-path active-scan-path">
+                {activeScanPath ?? "The scanner has not emitted a narrower path yet."}
+              </p>
+            </article>
+            <article className="summary-card">
+              <span>Started</span>
+              <strong>{activeScanStarted ?? "Starting scan"}</strong>
+              <p className="active-scan-meta">
+                {activeScanElapsed ?? "Elapsed time will appear after progress updates."}
+              </p>
+            </article>
+            <article className="summary-card">
+              <span>Last update</span>
+              <strong>{activeScanHeartbeat}</strong>
+              <p className="active-scan-meta">Live progress is emitted at a bounded cadence.</p>
+            </article>
+          </div>
+
+          <div className="active-scan-toolbar">
+            <div className="result-summary">
+              <article className="summary-card">
+                <span>State</span>
+                <strong>{scanStatus.state}</strong>
+              </article>
+              <article className="summary-card">
+                <span>Files discovered</span>
+                <strong>{scanStatus.filesDiscovered}</strong>
+              </article>
+              <article className="summary-card">
+                <span>Directories discovered</span>
+                <strong>{scanStatus.directoriesDiscovered}</strong>
+              </article>
+              <article className="summary-card">
+                <span>Bytes processed</span>
+                <strong>{formatBytes(scanStatus.bytesProcessed)} processed</strong>
+              </article>
+            </div>
+
+            <div className="action-row">
+              <button type="button" className="secondary-button" onClick={handleCancelScan}>
+                Cancel scan
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : currentScan ? (
         <section className="panel">
           <div className="panel-header">
             <h2>Current result</h2>
@@ -966,7 +1401,6 @@ function App({ client = unsupportedClient }: AppProps) {
                     <tbody>
                       {visibleEntries.map((entry) => {
                         const label = getPathLabel(entry.path);
-                        const showEntryLabel = !(duplicateAnalysis && entry.kind === "file");
                         const widthPercent =
                           currentLevelTotal === 0
                             ? 0
@@ -979,7 +1413,7 @@ function App({ client = unsupportedClient }: AppProps) {
                         return (
                           <tr key={entry.path}>
                             <td>
-                              <strong>{showEntryLabel ? label : `${entry.kind} item`}</strong>
+                              <strong>{label}</strong>
                             </td>
                             <td className="entry-kind">{entry.kind}</td>
                             <td>{formatBytes(entry.sizeBytes)}</td>
@@ -1052,14 +1486,25 @@ function App({ client = unsupportedClient }: AppProps) {
                     <span className="status-label">Analysis state</span>
                     <p className="current-path">{duplicateStatus.state}</p>
                   </div>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => void handleStartDuplicateAnalysis()}
-                    disabled={duplicateStatus.state === "running"}
-                  >
-                    Analyze duplicates
-                  </button>
+                  <div className="action-row">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => void handleStartDuplicateAnalysis()}
+                      disabled={duplicateStatus.state === "running"}
+                    >
+                      Analyze duplicates
+                    </button>
+                    {duplicateStatus.state === "running" ? (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void handleCancelDuplicateAnalysis()}
+                      >
+                        Cancel analysis
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
 
                 {duplicateStatus.state === "running" ? (
@@ -1074,7 +1519,7 @@ function App({ client = unsupportedClient }: AppProps) {
                     <div className="duplicate-summary-grid">
                       <article className="summary-card">
                         <span>Duplicate groups</span>
-                        <strong>{duplicateAnalysis.groups.length}</strong>
+                        <strong>{duplicateAnalysis.groups.length} duplicate groups</strong>
                       </article>
                       <article className="summary-card">
                         <span>Marked for later deletion</span>
@@ -1094,10 +1539,12 @@ function App({ client = unsupportedClient }: AppProps) {
                       </p>
                     ) : (
                       <div className="duplicate-groups" role="list" aria-label="Duplicate groups">
-                        {duplicateAnalysis.groups.map((group) => {
+                        {orderedDuplicateGroups.map((group) => {
                           const keptPath = resolveKeptPath(group, duplicateKeepSelections);
                           const newestPath = chooseMemberByAge(group.members, "newest");
                           const oldestPath = chooseMemberByAge(group.members, "oldest");
+                          const isExpanded = Boolean(expandedDuplicateGroups[group.groupId]);
+                          const membersRegionId = `duplicate-members-${group.groupId}`;
 
                           return (
                             <article
@@ -1107,7 +1554,7 @@ function App({ client = unsupportedClient }: AppProps) {
                               role="listitem"
                             >
                               <div className="duplicate-group-header">
-                                <div>
+                                <div className="duplicate-group-summary">
                                   <h4>{group.members.length} verified copies</h4>
                                   <p>
                                     {formatBytes(group.sizeBytes)} each and{" "}
@@ -1115,6 +1562,15 @@ function App({ client = unsupportedClient }: AppProps) {
                                   </p>
                                 </div>
                                 <div className="duplicate-actions">
+                                  <button
+                                    type="button"
+                                    className="secondary-button"
+                                    aria-expanded={isExpanded}
+                                    aria-controls={membersRegionId}
+                                    onClick={() => handleToggleDuplicateGroup(group.groupId)}
+                                  >
+                                    {isExpanded ? "Hide details" : "Show details"}
+                                  </button>
                                   <button
                                     type="button"
                                     className={`secondary-button ${keptPath === newestPath ? "is-active" : ""}`}
@@ -1134,38 +1590,51 @@ function App({ client = unsupportedClient }: AppProps) {
                                 </div>
                               </div>
 
-                              <div className="duplicate-members" role="list">
-                                {group.members.map((member) => {
-                                  const label = getPathLabel(member.path);
-                                  const isKept = member.path === keptPath;
+                              {isExpanded ? (
+                                <div
+                                  className="duplicate-members"
+                                  id={membersRegionId}
+                                  role="list"
+                                >
+                                  {group.members.map((member) => {
+                                    const label = getPathLabel(member.path);
+                                    const locationLabel = getDuplicateMemberLocationLabel(
+                                      member.path,
+                                      duplicateAnalysis.rootPath,
+                                    );
+                                    const isKept = member.path === keptPath;
 
-                                  return (
-                                    <article
-                                      className="duplicate-member"
-                                      key={member.path}
-                                      role="listitem"
-                                      title={member.path}
-                                    >
-                                      <div className="duplicate-member-meta">
-                                        <strong>{getPathLabel(member.path)}</strong>
-                                        <span>{formatTimestamp(member.modifiedAt)}</span>
-                                        <span>{formatBytes(member.sizeBytes)}</span>
-                                      </div>
-                                      <div className="duplicate-member-actions">
-                                        <button
-                                          type="button"
-                                          className={`selection-pill selection-toggle ${isKept ? "is-kept" : "is-delete"}`}
-                                          aria-label={`${isKept ? "Kept copy" : "Delete candidate"} for ${label}`}
-                                          aria-pressed={isKept}
-                                          onClick={() => handleSelectKeepPath(group, member.path)}
-                                        >
-                                          {isKept ? "Kept copy" : "Delete candidate"}
-                                        </button>
-                                      </div>
-                                    </article>
-                                  );
-                                })}
-                              </div>
+                                    return (
+                                      <article
+                                        className="duplicate-member"
+                                        key={member.path}
+                                        role="listitem"
+                                        title={member.path}
+                                      >
+                                        <div className="duplicate-member-meta">
+                                          <strong>{label}</strong>
+                                          <span className="duplicate-member-location">
+                                            {locationLabel}
+                                          </span>
+                                          <span>{formatTimestamp(member.modifiedAt)}</span>
+                                          <span>{formatBytes(member.sizeBytes)}</span>
+                                        </div>
+                                        <div className="duplicate-member-actions">
+                                          <button
+                                            type="button"
+                                            className={`selection-pill selection-toggle ${isKept ? "is-kept" : "is-delete"}`}
+                                            aria-label={`${isKept ? "Kept copy" : "Delete candidate"} for ${label}`}
+                                            aria-pressed={isKept}
+                                            onClick={() => handleSelectKeepPath(group, member.path)}
+                                          >
+                                            {isKept ? "Kept copy" : "Delete candidate"}
+                                          </button>
+                                        </div>
+                                      </article>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
                             </article>
                           );
                         })}
@@ -1186,6 +1655,8 @@ function App({ client = unsupportedClient }: AppProps) {
                       </section>
                     ) : null}
                   </>
+                ) : duplicateStatus.state === "cancelled" && duplicateStatus.message ? (
+                  <p className="notice-banner">{duplicateStatus.message}</p>
                 ) : duplicateStatus.state === "failed" && duplicateStatus.message ? (
                   <p className="error-banner">{duplicateStatus.message}</p>
                 ) : (

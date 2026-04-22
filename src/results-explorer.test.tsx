@@ -37,6 +37,9 @@ function makeCompletedStatus(scanId: string): ScanStatusSnapshot {
     filesDiscovered: 6,
     directoriesDiscovered: 4,
     bytesProcessed: 6656,
+    startedAt: "2026-04-15T10:59:00Z",
+    updatedAt: "2026-04-15T11:00:00Z",
+    currentPath: "C:\\Users\\xiongxianfei\\Downloads",
     message: "Scan complete.",
     completedScanId: scanId,
   };
@@ -174,10 +177,17 @@ function createExplorerClient(scan: BrowseableScanFixture, scanId = scan.scanId)
   const client: ExplorerClient = {
     startScan: vi.fn(async () => ({ scanId: "scan-running" })),
     cancelActiveScan: vi.fn(async () => {}),
+    cancelScanRun: vi.fn(async () => {}),
     getScanStatus: vi.fn(async () => makeCompletedStatus(scanId)),
     listScanHistory: vi.fn(async () => [historyEntry]),
     openScanHistory: vi.fn(async () => scan),
+    listScanRuns: vi.fn(async () => []),
+    openScanRun: vi.fn(async () => {
+      throw new Error("no scan run");
+    }),
+    resumeScanRun: vi.fn(async () => ({ runId: "run-resumed" })),
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: "analysis-unused" })),
+    cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () => idleDuplicateStatus),
     openDuplicateAnalysis: vi.fn(async () => {
       throw new Error("no duplicate result");
@@ -282,7 +292,7 @@ describe("Space Sift results explorer", () => {
     expect(
       screen.queryByRole("table", { name: /current folder contents/i }),
     ).not.toBeInTheDocument();
-  });
+  }, uiTestTimeout);
 
   it("requests Explorer handoff for the current path and surfaces missing-path errors", async () => {
     const client = createExplorerClient(makeBrowseableScan("scan-shell"));
@@ -329,5 +339,5 @@ describe("Space Sift results explorer", () => {
     expect(
       screen.queryByRole("table", { name: /current folder contents/i }),
     ).not.toBeInTheDocument();
-  }, uiTestTimeout);
+  });
 });

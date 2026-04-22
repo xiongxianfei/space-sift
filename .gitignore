@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 src-tauri/tauri.release.conf.json
+.tmp-cargo-target/
 
 # Editor directories and files
 .vscode/*
