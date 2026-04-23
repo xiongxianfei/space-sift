@@ -290,7 +290,7 @@ release automation.
 - [x] Plan reviewed
 - [x] Matching test spec created
 - [x] M1 complete
-- [ ] M2 complete
+- [x] M2 complete
 - [ ] M3 complete
 - [ ] M4 complete
 - [ ] Branch-wide verification complete
@@ -327,6 +327,11 @@ release automation.
   - Reason: the first code-review pass found that M1 had breakpoint CSS proof
     but lacked direct `T12` proof for required shell content across the
     accepted large, medium, and small app-window widths.
+- 2026-04-24: Implemented M2 with explicit Overview metric cards and
+  accessible review regions for Scan, History, and Explorer.
+  - Reason: the core scan-review panels needed prototype-aligned panel/card,
+    command, table, and degraded-state composition without changing scan,
+    history, Explorer handoff, or resume behavior.
 
 ## Surprises and discoveries
 
@@ -339,6 +344,10 @@ release automation.
   bridge-status pill that could misrepresent the unsupported bridge state, and
   missing direct `T12` responsive DOM proof. Both were fixed in the M1
   review-resolution commit.
+- M2 did not require backend, state-management, or component extraction. The
+  existing panel functions already preserved the approved workflows; the
+  implementation added truthful metric-card state, accessible region names, and
+  light styling hooks around the existing behavior.
 
 ## Aligned-surface audit
 
@@ -351,6 +360,15 @@ release automation.
 - Visual screenshot evidence: unaffected with rationale for M1 closeout.
   M4 owns final screenshot or human-visible comparison after panel fidelity is
   implemented.
+- `src-tauri/`: unaffected with rationale for M2. The milestone changed only
+  React markup, CSS, and frontend tests; no Tauri command, event, persistence,
+  scan, duplicate, cleanup, or resume contract changed.
+- Duplicates, Cleanup, and Safety panel fidelity: unaffected with rationale.
+  M3 owns these panels; M2 intentionally touched only Overview, Scan, History,
+  and Explorer.
+- Visual screenshot evidence: still unaffected with rationale for M2 closeout.
+  M4 owns final screenshot or human-visible comparison after M3 panel fidelity
+  is implemented.
 
 ## Validation notes
 
@@ -382,6 +400,37 @@ release automation.
 - 2026-04-24: `git diff --check -- src\App.tsx src\App.css src\workspace-navigation.test.tsx`
   - passed
   - output contained CRLF conversion warnings only
+- 2026-04-24: `npm run test -- src/workspace-navigation.test.tsx`
+  - failed after M2 tests were added, before production changes
+  - expected failure: missing Overview metric region and Scan command/progress
+    region
+- 2026-04-24: `npm run test -- src/scan-history.test.tsx`
+  - failed after M2 tests were added, before production changes
+  - expected failure: missing completed-history and interrupted-run continuity
+    regions
+- 2026-04-24: `npm run test -- src/results-explorer.test.tsx`
+  - failed after M2 tests were added, before production changes
+  - expected failure: missing read-only Explorer and summary-only compatibility
+    regions
+- 2026-04-24: `npm run test -- src/workspace-navigation.test.tsx`
+  - passed after M2 implementation
+  - result: 39 tests passed
+- 2026-04-24: `npm run test -- src/scan-history.test.tsx`
+  - passed after M2 implementation
+  - result: 11 tests passed
+- 2026-04-24: `npm run test -- src/results-explorer.test.tsx`
+  - passed after M2 implementation
+  - result: 5 tests passed
+- 2026-04-24: `npm run lint`
+  - passed after M2 implementation
+- 2026-04-24: `npm run test`
+  - passed after M2 implementation
+  - result: 7 test files passed, 79 tests passed
+- 2026-04-24: `npm run build`
+  - passed after M2 implementation
+- 2026-04-24: `git diff --check -- src\App.tsx src\App.css src\workspace-navigation.test.tsx src\scan-history.test.tsx src\results-explorer.test.tsx`
+  - passed
+  - output contained CRLF conversion warnings only
 
 ## Outcome and retrospective
 
@@ -390,11 +439,15 @@ release automation.
   global status within that content area, vertical tab orientation semantics,
   arrow-up/down keyboard support, and responsive CSS at the prototype baseline
   breakpoints.
+- M2 is implemented and validation-complete. Overview now renders four truthful
+  metric cards with real or explicit unavailable states; Scan exposes a grouped
+  command/progress region and active-scan detail region; History separates
+  completed scan history from interrupted-run continuity; Explorer exposes a
+  read-only browseable result region and a summary-only compatibility region.
 
 ## Readiness
 
-This plan is active. M1 review-resolution is implemented and ready for another
-code-review pass.
+This plan is active. M2 is implemented and ready for code review.
 
-M2, M3, and M4 remain unstarted. Branch-wide readiness is blocked until the
+M3 and M4 remain unstarted. Branch-wide readiness is blocked until the
 remaining milestones are implemented and final visual verification is recorded.

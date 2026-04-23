@@ -945,6 +945,47 @@ describe("Space Sift scan and history flow", () => {
     });
   });
 
+  it("history_panel_separates_completed_scans_from_interrupted_run_continuity", async () => {
+    const mock = createMockClient({
+      history: [makeHistoryEntry("scan-1", "C:\\Users\\xiongxianfei\\Downloads", 4096)],
+      scansById: {
+        "scan-1": makeCompletedScan(),
+      },
+      scanRuns: [
+        makeRunSummary({
+          runId: "run-abandoned",
+          status: "abandoned",
+          hasResume: true,
+          canResume: false,
+          latestSeq: 5,
+        }),
+      ],
+    });
+
+    render(<App client={mock.client} />);
+
+    await activateWorkspace("History");
+
+    const historyPanel = screen.getByRole("tabpanel", { name: "History" });
+    const completedRegion = within(historyPanel).getByRole("region", {
+      name: /completed scan history/i,
+    });
+    const interruptedRegion = within(historyPanel).getByRole("region", {
+      name: /interrupted run continuity/i,
+    });
+
+    expect(within(completedRegion).getByRole("button", { name: /reopen scan scan-1/i })).toBeInTheDocument();
+    expect(within(completedRegion).queryByText(/run id: run-abandoned/i)).not.toBeInTheDocument();
+
+    expect(within(interruptedRegion).getByText(/run id: run-abandoned/i)).toBeInTheDocument();
+    expect(within(interruptedRegion).getByText(/resume unavailable/i)).toBeInTheDocument();
+    expect(within(interruptedRegion).getByText(/seq 5/i)).toBeInTheDocument();
+    expect(within(interruptedRegion).getByText(/65% progress/i)).toBeInTheDocument();
+    expect(
+      within(interruptedRegion).getByRole("button", { name: /resume run run-abandoned/i }),
+    ).toBeDisabled();
+  });
+
   it("disables resume from canResume when resume metadata exists but the engine is unsupported", async () => {
     const mock = createMockClient({
       scanRuns: [

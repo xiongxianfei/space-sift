@@ -473,6 +473,10 @@ select {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
+.overview-metrics {
+  margin-bottom: 18px;
+}
+
 .result-summary {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
@@ -508,6 +512,23 @@ select {
   font-size: 1.02rem;
 }
 
+.metric-card {
+  min-height: 150px;
+}
+
+.metric-card strong {
+  font-size: 1.18rem;
+}
+
+.scan-command-card {
+  display: grid;
+  gap: 16px;
+}
+
+.scan-command-context {
+  margin-top: 0;
+}
+
 .notice-banner,
 .error-banner {
   margin: 0 0 12px;
@@ -518,6 +539,10 @@ select {
 .notice-banner {
   background: rgba(65, 117, 152, 0.24);
   color: #d8edff;
+}
+
+.notice-banner p {
+  margin: 0;
 }
 
 .error-banner {

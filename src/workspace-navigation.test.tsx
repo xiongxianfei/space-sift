@@ -653,6 +653,67 @@ describe("Space Sift workspace navigation shell", () => {
     expect(client.resumeScanRun).not.toHaveBeenCalled();
   });
 
+  it("overview_metrics_render_real_or_explicit_empty_states", async () => {
+    render(<App client={createWorkspaceClient()} />);
+
+    await waitForWorkspaceShell();
+
+    const emptyMetrics = screen.getByRole("region", { name: /overview metrics/i });
+    expect(within(emptyMetrics).getByRole("article", { name: /total bytes metric/i })).toHaveTextContent(
+      /not yet run/i,
+    );
+    expect(within(emptyMetrics).getByRole("article", { name: /total files metric/i })).toHaveTextContent(
+      /not yet run/i,
+    );
+    expect(within(emptyMetrics).getByRole("article", { name: /duplicate reclaimable metric/i })).toHaveTextContent(
+      /not analyzed/i,
+    );
+    expect(within(emptyMetrics).getByRole("article", { name: /cleanup candidates metric/i })).toHaveTextContent(
+      /preview not generated/i,
+    );
+    expect(emptyMetrics).not.toHaveTextContent(/1\.2 tb|47,000|sample|prototype/i);
+  });
+
+  it("overview_metrics_use_loaded_scan_values_when_available", async () => {
+    render(
+      <App
+        client={createWorkspaceClient({
+          scanStatus: makeCompletedStatus(),
+          scan: makeBrowseableScan(),
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+
+    const metrics = screen.getByRole("region", { name: /overview metrics/i });
+    expect(within(metrics).getByRole("article", { name: /total bytes metric/i })).toHaveTextContent(
+      /4096 bytes/i,
+    );
+    expect(within(metrics).getByRole("article", { name: /total files metric/i })).toHaveTextContent(
+      /^total files\s*3/i,
+    );
+  });
+
+  it("scan_panel_groups_command_progress_and_running_context", async () => {
+    render(<App client={createWorkspaceClient({ scanStatus: makeRunningStatus() })} />);
+
+    await activateWorkspace("Scan");
+
+    const scanPanel = screen.getByRole("tabpanel", { name: "Scan" });
+    const commandRegion = within(scanPanel).getByRole("region", {
+      name: /scan command and progress/i,
+    });
+    expect(within(commandRegion).getByLabelText(/scan root/i)).toBeInTheDocument();
+    expect(within(commandRegion).getByRole("button", { name: /start scan/i })).toBeInTheDocument();
+    expect(within(commandRegion).getByRole("button", { name: /cancel scan/i })).toBeInTheDocument();
+    expect(within(commandRegion).getByText(/running/i)).toBeInTheDocument();
+    expect(within(commandRegion).getByText(/2048 bytes processed/i)).toBeInTheDocument();
+    expect(within(commandRegion).getByText(/c:\\users\\xiongxianfei\\downloads/i)).toBeInTheDocument();
+
+    expect(within(scanPanel).getByRole("region", { name: /active scan details/i })).toBeInTheDocument();
+  });
+
   it("global_status_visible_on_all_workspaces", async () => {
     render(<App client={createWorkspaceClient()} />);
 

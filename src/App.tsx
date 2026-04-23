@@ -1560,6 +1560,49 @@ function App({ client = unsupportedClient }: AppProps) {
           </p>
         </div>
 
+        <section
+          className="overview-metrics result-summary"
+          role="region"
+          aria-label="Overview metrics"
+        >
+          <article className="summary-card metric-card" aria-label="Total bytes metric">
+            <span>Total bytes</span>
+            <strong>{currentScan ? formatBytes(currentScan.totalBytes) : "Not yet run"}</strong>
+            <p className="current-path">
+              {currentScan ? currentScan.scanId : "Start a scan or reopen local history."}
+            </p>
+          </article>
+          <article className="summary-card metric-card" aria-label="Total files metric">
+            <span>Total files</span>
+            <strong>{currentScan ? currentScan.totalFiles : "Not yet run"}</strong>
+            <p className="current-path">
+              {currentScan ? `${currentScan.totalDirectories} directories tracked` : "No scan result loaded."}
+            </p>
+          </article>
+          <article className="summary-card metric-card" aria-label="Duplicate reclaimable metric">
+            <span>Duplicate reclaimable</span>
+            <strong>
+              {duplicateAnalysis ? formatBytes(duplicatePreview.reclaimableBytes) : "Not analyzed"}
+            </strong>
+            <p className="current-path">
+              {duplicateAnalysis
+                ? `${duplicatePreview.filesMarkedForDeletion} files marked after keep selection.`
+                : "Run duplicate analysis after loading a scan."}
+            </p>
+          </article>
+          <article className="summary-card metric-card" aria-label="Cleanup candidates metric">
+            <span>Cleanup candidates</span>
+            <strong>
+              {cleanupPreview ? cleanupPreview.candidates.length : "Preview not generated"}
+            </strong>
+            <p className="current-path">
+              {cleanupPreview
+                ? `${formatBytes(cleanupPreview.totalBytes)} pending preview review.`
+                : "Generate a cleanup preview before execution."}
+            </p>
+          </article>
+        </section>
+
         <div className="result-summary">
           <article className="summary-card">
             <span>Global state</span>
@@ -1672,7 +1715,11 @@ function App({ client = unsupportedClient }: AppProps) {
           </p>
         </div>
 
-        <section className="result-card">
+        <section
+          className="result-card scan-command-card"
+          role="region"
+          aria-label="Scan command and progress"
+        >
           <div className="panel-header compact-header">
             <h3>Scan workspace</h3>
             <p>
@@ -1713,6 +1760,10 @@ function App({ client = unsupportedClient }: AppProps) {
             </div>
           </form>
 
+          <p className="current-path scan-command-context">
+            Active root: {activeScanRoot}
+          </p>
+
           <div className="status-strip" aria-live="polite">
             <div>
               <span className="status-label">State</span>
@@ -1734,7 +1785,12 @@ function App({ client = unsupportedClient }: AppProps) {
         </section>
 
         {isScanRunning ? (
-          <section className="result-card active-scan-panel" aria-live="polite">
+          <section
+            className="result-card active-scan-panel"
+            role="region"
+            aria-label="Active scan details"
+            aria-live="polite"
+          >
             <div className="panel-header compact-header">
               <h3>Active scan</h3>
               <p>
@@ -1830,7 +1886,7 @@ function App({ client = unsupportedClient }: AppProps) {
           </p>
         </div>
 
-        <section className="result-card">
+        <section className="result-card" role="region" aria-label="Completed scan history">
           <div className="panel-header compact-header">
             <h3>Recent scans</h3>
             <p>Completed scan results stay local so you can reopen them without rescanning.</p>
@@ -1903,7 +1959,7 @@ function App({ client = unsupportedClient }: AppProps) {
           )}
         </section>
 
-        <section className="result-card">
+        <section className="result-card" role="region" aria-label="Interrupted run continuity">
           <div className="panel-header compact-header">
             <h3>Interrupted runs</h3>
             <p>Recovered runs stay visible until you resume them or cancel them.</p>
@@ -1995,7 +2051,11 @@ function App({ client = unsupportedClient }: AppProps) {
 
               {browseableScan && resolvedExplorerPath ? (
                 <div className="explorer-grid">
-                  <section className="result-card explorer-card">
+                  <section
+                    className="result-card explorer-card"
+                    role="region"
+                    aria-label="Read-only browseable result"
+                  >
                     <div className="explorer-header">
                       <div>
                         <h3>Results explorer</h3>
@@ -2130,10 +2190,16 @@ function App({ client = unsupportedClient }: AppProps) {
                   </section>
                 </div>
               ) : (
-                <p className="notice-banner compatibility-note">
-                  This saved result was saved before folder browsing support. Run a fresh
-                  scan to browse folders again.
-                </p>
+                <section
+                  className="notice-banner compatibility-note"
+                  role="region"
+                  aria-label="Summary-only scan compatibility"
+                >
+                  <p>
+                    This saved result was saved before folder browsing support. Run a fresh
+                    scan to browse folders again.
+                  </p>
+                </section>
               )}
             </section>
 
