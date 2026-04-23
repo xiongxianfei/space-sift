@@ -413,9 +413,11 @@ describe("Space Sift scan and history flow", () => {
     await waitFor(() => {
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-1");
       expect(screen.getByText(/loaded scan-1 from local history/i)).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
     });
-
-    await activateWorkspace("Explorer");
 
     await activateWorkspace("Scan");
 
@@ -502,11 +504,10 @@ describe("Space Sift scan and history flow", () => {
     await waitFor(() => {
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-2");
       expect(screen.getByText(/scan complete\./i)).toBeInTheDocument();
-    });
-
-    await activateWorkspace("Explorer");
-
-    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
       expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: /active scan/i })).not.toBeInTheDocument();
       expect(
@@ -557,11 +558,10 @@ describe("Space Sift scan and history flow", () => {
         resumeEnabled: false,
       });
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-2");
-    });
-
-    await activateWorkspace("Explorer");
-
-    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
       expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: /active scan/i })).not.toBeInTheDocument();
       expect(
@@ -613,9 +613,11 @@ describe("Space Sift scan and history flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /reopen scan scan-1/i }));
     await waitFor(() => {
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-1");
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
     });
-
-    await activateWorkspace("Explorer");
 
     const contentsTable = await screen.findByRole("table", {
       name: /current folder contents/i,
@@ -679,7 +681,13 @@ describe("Space Sift scan and history flow", () => {
     await waitFor(() => {
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-2");
       expect(screen.getByText(/loaded scan-2 from local history/i)).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
     });
+
+    await activateWorkspace("History");
 
     const loadedEntry = screen
       .getByRole("button", { name: /reopen scan scan-2/i })
@@ -760,7 +768,13 @@ describe("Space Sift scan and history flow", () => {
     await waitFor(() => {
       expect(mock.client.openScanHistory).toHaveBeenCalledWith("scan-24");
       expect(screen.getByText(/loaded scan-24 from local history/i)).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
     });
+
+    await activateWorkspace("History");
 
     const loadedEntry = screen
       .getByRole("button", { name: /reopen scan scan-24/i })
@@ -771,7 +785,8 @@ describe("Space Sift scan and history flow", () => {
 
     expect(within(loadedEntry).getByText(/loaded result/i)).toBeInTheDocument();
 
-    fireEvent.change(rootFilter, {
+    const refreshedRootFilter = screen.getByLabelText(/filter by root path/i);
+    fireEvent.change(refreshedRootFilter, {
       target: { value: "" },
     });
 

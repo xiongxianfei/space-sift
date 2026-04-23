@@ -5,10 +5,20 @@ import type {
   DuplicateStatusSnapshot,
   ScanRunSummary,
   ScanStatusSnapshot,
+  WorkspaceRestoreContext,
   WorkspaceRestoreWorkspace,
 } from "./lib/spaceSiftTypes";
 
 export type WorkspaceTab = WorkspaceRestoreWorkspace;
+export type WorkspaceNavigationReason =
+  | "manual"
+  | "startup"
+  | "N1_START_SCAN"
+  | "N2_SCAN_COMPLETED_AND_OPENED"
+  | "N3_OPEN_HISTORY_SCAN"
+  | "N4_START_DUPLICATE_ANALYSIS"
+  | "N5_REQUEST_CLEANUP_PREVIEW"
+  | "N6_REVIEW_INTERRUPTED_RUNS";
 
 export type WorkspaceDefinition = {
   value: WorkspaceTab;
@@ -39,6 +49,14 @@ type DeriveGlobalStatusInput = {
   cleanupPreview: CleanupPreview | null;
   cleanupExecutionResult: CleanupExecutionResult | null;
   cleanupPreviewAvailable: boolean;
+};
+
+type ResolveInitialWorkspaceInput = {
+  scanStatus: ScanStatusSnapshot;
+  duplicateStatus: DuplicateStatusSnapshot;
+  interruptedRuns: ScanRunSummary[];
+  restoreContext: WorkspaceRestoreContext | null;
+  loadedScan: CompletedScan | null;
 };
 
 export const workspaceDefinitions: WorkspaceDefinition[] = [
@@ -103,7 +121,64 @@ function buildScanContext(scan: CompletedScan | null) {
     return "No completed scan is loaded.";
   }
 
-  return `${scan.scanId} · ${scan.rootPath}`;
+  return `${scan.scanId} | ${scan.rootPath}`;
+}
+
+function isInterruptedRun(run: ScanRunSummary) {
+  return run.header.status === "stale" || run.header.status === "abandoned";
+}
+
+export function resolveInitialWorkspace({
+  scanStatus,
+  duplicateStatus,
+  interruptedRuns,
+  restoreContext,
+  loadedScan,
+}: ResolveInitialWorkspaceInput): WorkspaceTab {
+  if (scanStatus.state === "running") {
+    return "scan";
+  }
+
+  if (
+    duplicateStatus.state === "running" &&
+    loadedScan &&
+    duplicateStatus.scanId === loadedScan.scanId
+  ) {
+    return "duplicates";
+  }
+
+  if (interruptedRuns.some(isInterruptedRun)) {
+    return "history";
+  }
+
+  if (
+    restoreContext?.lastWorkspace === "explorer" &&
+    restoreContext.lastOpenedScanId &&
+    loadedScan &&
+    loadedScan.scanId === restoreContext.lastOpenedScanId
+  ) {
+    return "explorer";
+  }
+
+  return "overview";
+}
+
+export function getNextSafeActionReason(
+  action: NextSafeAction | null,
+): WorkspaceNavigationReason | null {
+  if (!action) {
+    return null;
+  }
+
+  if (action.label === "Review interrupted runs") {
+    return "N6_REVIEW_INTERRUPTED_RUNS";
+  }
+
+  if (action.label === "Review cleanup preview") {
+    return "N5_REQUEST_CLEANUP_PREVIEW";
+  }
+
+  return "manual";
 }
 
 export function deriveGlobalStatus({
@@ -138,7 +213,7 @@ export function deriveGlobalStatus({
     return {
       primaryStateLabel: "Live duplicate analysis running",
       contextLabel: buildScanContext(currentScan),
-      summaryLabel: `${getDuplicateStageLabel(duplicateStatus.stage)} · ${duplicateStatus.itemsProcessed} items processed`,
+      summaryLabel: `${getDuplicateStageLabel(duplicateStatus.stage)} | ${duplicateStatus.itemsProcessed} items processed`,
       nextSafeAction: {
         label: "View duplicate analysis",
         target: "duplicates",
@@ -156,7 +231,7 @@ export function deriveGlobalStatus({
     return {
       primaryStateLabel: "Cleanup preview ready",
       contextLabel: buildScanContext(currentScan),
-      summaryLabel: `${cleanupPreview.candidates.length} candidates · ${formatBytes(
+      summaryLabel: `${cleanupPreview.candidates.length} candidates | ${formatBytes(
         cleanupPreview.totalBytes,
       )}`,
       nextSafeAction: {
@@ -171,7 +246,7 @@ export function deriveGlobalStatus({
     return {
       primaryStateLabel: "Cleanup execution completed with rescan recommended",
       contextLabel: buildScanContext(currentScan),
-      summaryLabel: `${cleanupExecutionResult.completedCount} completed · ${cleanupExecutionResult.failedCount} failed`,
+      summaryLabel: `${cleanupExecutionResult.completedCount} completed | ${cleanupExecutionResult.failedCount} failed`,
       nextSafeAction: {
         label: "Start a fresh scan",
         target: "scan",
@@ -198,7 +273,7 @@ export function deriveGlobalStatus({
       return {
         primaryStateLabel: "Completed scan loaded",
         contextLabel: buildScanContext(currentScan),
-        summaryLabel: `${formatBytes(currentScan.totalBytes)} · duplicate analysis available`,
+        summaryLabel: `${formatBytes(currentScan.totalBytes)} | duplicate analysis available`,
         nextSafeAction: {
           label: "Find duplicates",
           target: "duplicates",
@@ -211,7 +286,7 @@ export function deriveGlobalStatus({
       return {
         primaryStateLabel: "Completed scan loaded",
         contextLabel: buildScanContext(currentScan),
-        summaryLabel: `${formatBytes(currentScan.totalBytes)} · cleanup preview can be prepared`,
+        summaryLabel: `${formatBytes(currentScan.totalBytes)} | cleanup preview can be prepared`,
         nextSafeAction: {
           label: "Preview cleanup",
           target: "cleanup",
@@ -224,7 +299,7 @@ export function deriveGlobalStatus({
       return {
         primaryStateLabel: "Completed scan loaded",
         contextLabel: buildScanContext(currentScan),
-        summaryLabel: `${formatBytes(currentScan.totalBytes)} · browseable result ready`,
+        summaryLabel: `${formatBytes(currentScan.totalBytes)} | browseable result ready`,
         nextSafeAction: {
           label: "Browse results",
           target: "explorer",
@@ -236,7 +311,7 @@ export function deriveGlobalStatus({
     return {
       primaryStateLabel: "Completed scan loaded",
       contextLabel: buildScanContext(currentScan),
-      summaryLabel: `${formatBytes(currentScan.totalBytes)} · summary-only result`,
+      summaryLabel: `${formatBytes(currentScan.totalBytes)} | summary-only result`,
       nextSafeAction: null,
       noActionLabel: "No safe next action right now.",
     };

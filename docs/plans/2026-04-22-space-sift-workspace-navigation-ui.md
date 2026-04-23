@@ -300,7 +300,7 @@ them.
 - [x] Plan reviewed
 - [x] M1 complete
 - [x] M2 complete
-- [ ] M3 complete
+- [x] M3 complete
 - [ ] M4 complete
 - [ ] Branch-wide verification complete
 
@@ -315,6 +315,9 @@ them.
 - 2026-04-22: Invalid or unsupported restore-context rows are treated as `no restore context` at the storage and shell-command boundary instead of surfacing a fatal startup dependency.
 - 2026-04-22: `M2` keeps contractual auto-switch behavior out of scope; explicit history reopen and scan-completion flows still require manual `Explorer` navigation until `M3` implements `N2` and `N3`.
 - 2026-04-22: After the `M2` review found stale proof-surface metadata, the workspace-navigation test spec was normalized to `approved` so the governing artifact state matches the implemented milestone state.
+- 2026-04-23: `M3` uses operation-aware shell switch keys composed from navigation reason, workspace target, and operation id so replayed terminal snapshots do not keep stealing focus or resetting review state.
+- 2026-04-23: `M3` preserves durable completed duplicate-analysis hydration for the currently loaded scan during startup, but it still does not cold-start the `Duplicates` workspace from prior review state alone.
+- 2026-04-23: Manual workspace activation during startup wins over the late startup resolver so a user click is not overwritten by async restore-context validation.
 
 ## Surprises and discoveries
 
@@ -324,6 +327,7 @@ them.
 - Because `M1` extended the shared TypeScript client interface, existing workflow test doubles had to grow no-op restore-context methods before `npm run build` would pass.
 - `M2` split the UI into real workspaces, so the existing workflow suites had to activate `Scan`, `History`, `Explorer`, `Duplicates`, or `Cleanup` explicitly instead of assuming a stacked single-page render.
 - The new shell-level global status copies some workflow summary text, so existing duplicate and cleanup assertions needed panel-scoped queries to avoid matching the shell summary instead of the feature panel.
+- The first `M3` broad test run exposed that startup still needs to hydrate a durably persisted completed duplicate-analysis result for the currently loaded scan. Without that hydration, cleanup preview lost duplicate delete candidates even though `Duplicates` still must not cold-start as the active workspace.
 
 ## Validation notes
 
@@ -354,6 +358,19 @@ them.
   - `git diff --check -- specs/space-sift-workspace-navigation.test.md docs/plans/2026-04-22-space-sift-workspace-navigation-ui.md`
     - passed with only CRLF conversion warnings
   - no runtime validation commands were needed because the follow-up change only normalized test-spec and plan metadata
+- `npm run test -- src/workspace-navigation.test.tsx`
+  - passed: `27 passed; 0 failed`
+- `npm run test -- src/scan-history.test.tsx`
+  - passed: `10 passed; 0 failed`
+- `npm run lint`
+  - passed
+- `npm run test`
+  - first run failed in `src/cleanup.test.tsx` because the `M3` startup refactor stopped hydrating a completed duplicate-analysis result for the currently loaded scan, so `previewCleanup` received `duplicateDeletePaths: []`
+  - rerun after restoring startup duplicate-analysis hydration for the loaded scan passed: `7 files, 64 tests`
+- `npm run build`
+  - first run failed with `src/App.tsx(752,49): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'`
+  - rerun after capturing `completedScanId` before the async `openStoredScan(...)` handoff passed
+- not applicable for `M3`: `cargo test --manifest-path src-tauri/Cargo.toml -p app-db workspace_restore_context` and `cargo check --manifest-path src-tauri/Cargo.toml` because this milestone stayed in `src/` and did not change `src-tauri/`
 
 ## Outcome and retrospective
 
@@ -362,9 +379,12 @@ them.
 - The coordinated active UI plans remain unchanged by `M1`; this slice only extends the persistence and client boundary needed by the later shell milestones.
 - `M2` is complete. The app now exposes an accessible tabbed workspace shell, a shell-owned `GlobalStatusModel`, deterministic next-safe-action selection, and a focused shell-contract suite in `src/workspace-navigation.test.tsx`.
 - `M2` also updated the existing workflow suites so they exercise the new workspace shell explicitly without pulling `M3` auto-switch behavior forward.
+- `M3` is complete. The shell now resolves startup from the approved live-work, interrupted-run, and validated Explorer-restore rules; applies the contractual `N1` through `N4` auto-switches plus shell-action backed `N5` and `N6`; persists restore context only at the approved write points; and deduplicates replayed terminal snapshots by operation-aware navigation keys.
+- `M3` also adds restore-context failure notices and local shell log events, while preserving the existing duplicate, cleanup, and history contracts instead of reopening backend scope.
+- This slice extends the active scan and history-review contracts by making the approved workspace navigation transitions automatic, but it does not supersede the underlying scan, duplicate-analysis, cleanup, or continuity contracts those plans already govern.
 
 ## Readiness
 
-This plan is `active`. `M1` and `M2` are complete, and the current milestone
-slice is ready for `code-review`. `M3` remains the next implementation
-milestone.
+This plan is `active`. `M1`, `M2`, and `M3` are complete, and the current
+milestone slice is ready for `code-review`. `M4` remains the next
+implementation milestone.

@@ -1,0 +1,13 @@
+change_id: 2026-04-23-workspace-navigation-ui-m3-startup-switching
+title: Workspace navigation M3 startup resolver and contractual switching
+status: implemented
+implemented_on: 2026-04-23
+plan: docs/plans/2026-04-22-space-sift-workspace-navigation-ui.md
+milestone: M3
+feature_spec: specs/space-sift-workspace-navigation.md
+test_spec: specs/space-sift-workspace-navigation.test.md
+architecture: docs/architecture/2026-04-22-workspace-navigation-ui.md
+summary:
+  - Add startup workspace resolution from live work, interrupted runs, and validated Explorer restore context.
+  - Add contractual workspace switches for scan start, scan completion, history reopen, duplicate-analysis start, cleanup-preview review, and interrupted-run review.
+  - Add shell notices and local log events for restore-context failures and duplicate auto-switch dedupe without cold-starting Duplicates or Cleanup from prior review state.

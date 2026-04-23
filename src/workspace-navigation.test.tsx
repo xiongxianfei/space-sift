@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { idleDuplicateStatus, idleScanStatus, type SpaceSiftClient } from "./lib/spaceSiftClient";
@@ -6,12 +6,16 @@ import type {
   CleanupExecutionResult,
   CleanupPreview,
   CleanupRuleDefinition,
+  CompletedDuplicateAnalysis,
   CompletedScan,
   DuplicateStatusSnapshot,
   ScanHistoryEntry,
   ScanRunSummary,
   ScanStatusSnapshot,
+  WorkspaceRestoreContext,
+  WorkspaceRestoreWorkspace,
 } from "./lib/spaceSiftTypes";
+import { workspaceShellLogger } from "./workspaceShellLogger";
 
 const uiReadyTimeout = 5000;
 
@@ -71,6 +75,18 @@ function makeSummaryOnlyScan(scanId = "scan-summary"): CompletedScan {
     largestFiles: [],
     largestDirectories: [],
     skippedPaths: [],
+  };
+}
+
+function makeWorkspaceRestoreContext(
+  lastWorkspace: WorkspaceRestoreWorkspace,
+  lastOpenedScanId: string | null,
+): WorkspaceRestoreContext {
+  return {
+    schemaVersion: 1,
+    lastWorkspace,
+    lastOpenedScanId,
+    updatedAt: "2026-04-22T10:00:00Z",
   };
 }
 
@@ -221,17 +237,21 @@ function makeCleanupExecutionResult(): CleanupExecutionResult {
 type WorkspaceClientOptions = {
   scanStatus?: ScanStatusSnapshot;
   scan?: CompletedScan | null;
+  duplicateAnalysis?: CompletedDuplicateAnalysis | null;
   history?: ScanHistoryEntry[];
   scanRuns?: ScanRunSummary[];
   duplicateStatus?: DuplicateStatusSnapshot;
   cleanupRules?: CleanupRuleDefinition[];
   cleanupPreview?: CleanupPreview;
   cleanupExecutionResult?: CleanupExecutionResult;
+  restoreContext?: WorkspaceRestoreContext | null;
+  restoreContextError?: Error;
 };
 
 function createWorkspaceClient(options?: WorkspaceClientOptions) {
   const scanStatus = options?.scanStatus ?? idleScanStatus;
   const scan = options?.scan ?? null;
+  const duplicateAnalysis = options?.duplicateAnalysis ?? null;
   const history =
     options?.history ??
     (scanStatus.completedScanId && scan
@@ -243,13 +263,21 @@ function createWorkspaceClient(options?: WorkspaceClientOptions) {
   const cleanupPreview = options?.cleanupPreview ?? makeCleanupPreview(scan?.scanId ?? "scan-shell");
   const cleanupExecutionResult =
     options?.cleanupExecutionResult ?? makeCleanupExecutionResult();
+  const restoreContext = options?.restoreContext ?? null;
+  const restoreContextError = options?.restoreContextError ?? null;
 
   const client: SpaceSiftClient = {
     startScan: vi.fn(async () => ({ scanId: "scan-started" })),
     cancelActiveScan: vi.fn(async () => {}),
     cancelScanRun: vi.fn(async () => {}),
     getScanStatus: vi.fn(async () => scanStatus),
-    getWorkspaceRestoreContext: vi.fn(async () => null),
+    getWorkspaceRestoreContext: vi.fn(async () => {
+      if (restoreContextError) {
+        throw restoreContextError;
+      }
+
+      return restoreContext;
+    }),
     saveWorkspaceRestoreContext: vi.fn(async ({ lastWorkspace, lastOpenedScanId }) => ({
       schemaVersion: 1,
       lastWorkspace,
@@ -272,8 +300,12 @@ function createWorkspaceClient(options?: WorkspaceClientOptions) {
     startDuplicateAnalysis: vi.fn(async () => ({ analysisId: "analysis-started" })),
     cancelDuplicateAnalysis: vi.fn(async () => {}),
     getDuplicateAnalysisStatus: vi.fn(async () => duplicateStatus),
-    openDuplicateAnalysis: vi.fn(async () => {
-      throw new Error("no duplicate result");
+    openDuplicateAnalysis: vi.fn(async (analysisId: string) => {
+      if (!duplicateAnalysis || duplicateAnalysis.analysisId !== analysisId) {
+        throw new Error("no duplicate result");
+      }
+
+      return duplicateAnalysis;
     }),
     listCleanupRules: vi.fn(async () => cleanupRules),
     previewCleanup: vi.fn(async () => cleanupPreview),
@@ -289,6 +321,53 @@ function createWorkspaceClient(options?: WorkspaceClientOptions) {
   };
 
   return client;
+}
+
+type WorkspaceHarnessOptions = WorkspaceClientOptions;
+
+function createWorkspaceHarness(options?: WorkspaceHarnessOptions) {
+  let scanListener: ((snapshot: ScanStatusSnapshot) => void) | null = null;
+  let duplicateListener: ((snapshot: DuplicateStatusSnapshot) => void) | null = null;
+  const client = createWorkspaceClient(options);
+
+  client.subscribeToScanProgress = vi.fn(async (listener) => {
+    scanListener = listener;
+    return () => {
+      scanListener = null;
+    };
+  });
+
+  client.subscribeToDuplicateProgress = vi.fn(async (listener) => {
+    duplicateListener = listener;
+    return () => {
+      duplicateListener = null;
+    };
+  });
+
+  return {
+    client,
+    async emitScan(snapshot: ScanStatusSnapshot) {
+      await act(async () => {
+        scanListener?.(snapshot);
+      });
+    },
+    async emitDuplicate(snapshot: DuplicateStatusSnapshot) {
+      await act(async () => {
+        duplicateListener?.(snapshot);
+      });
+    },
+  };
+}
+
+function defer<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return { promise, resolve, reject };
 }
 
 async function waitForWorkspaceShell() {
@@ -654,6 +733,360 @@ describe("Space Sift workspace navigation shell", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: "Scan" })).toHaveAttribute("aria-selected", "true");
+    });
+  });
+
+  it("initial_workspace_prefers_running_scan", async () => {
+    const client = createWorkspaceClient({
+      scanStatus: makeRunningStatus(),
+      scanRuns: [makeInterruptedRunSummary()],
+      restoreContext: makeWorkspaceRestoreContext("explorer", "scan-shell"),
+      scan: makeBrowseableScan(),
+    });
+
+    render(<App client={client} />);
+    await waitForWorkspaceShell();
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Scan" })).toHaveAttribute("aria-selected", "true");
+    });
+  });
+
+  it("initial_workspace_prefers_interrupted_runs_over_restore_context", async () => {
+    render(
+      <App
+        client={createWorkspaceClient({
+          scanStatus: makeCompletedStatus(),
+          scan: makeBrowseableScan(),
+          scanRuns: [makeInterruptedRunSummary()],
+          restoreContext: makeWorkspaceRestoreContext("explorer", "scan-shell"),
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "History" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+  });
+
+  it("startup_restore_validation_failure_shows_shell_notice", async () => {
+    const logger = vi.spyOn(workspaceShellLogger, "log").mockImplementation(() => {});
+
+    render(
+      <App
+        client={createWorkspaceClient({
+          restoreContext: makeWorkspaceRestoreContext("explorer", "missing-scan"),
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(screen.getByText(/saved explorer context could not be restored/i)).toBeInTheDocument();
+    });
+
+    expect(logger).toHaveBeenCalledWith(
+      "workspace_restore_context_validation_failed",
+      expect.objectContaining({
+        lastOpenedScanId: "missing-scan",
+      }),
+    );
+
+    logger.mockRestore();
+  });
+
+  it("startup_restore_read_failure_shows_shell_notice", async () => {
+    const logger = vi.spyOn(workspaceShellLogger, "log").mockImplementation(() => {});
+
+    render(
+      <App
+        client={createWorkspaceClient({
+          restoreContextError: new Error("restore read failed"),
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(screen.getByText(/saved workspace context could not be read/i)).toBeInTheDocument();
+    });
+
+    expect(logger).toHaveBeenCalledWith(
+      "workspace_restore_context_load_failed",
+      expect.objectContaining({
+        message: "restore read failed",
+      }),
+    );
+
+    logger.mockRestore();
+  });
+
+  it("initial_workspace_restores_valid_explorer_context", async () => {
+    render(
+      <App
+        client={createWorkspaceClient({
+          scanStatus: makeCompletedStatus(),
+          scan: makeBrowseableScan(),
+          restoreContext: makeWorkspaceRestoreContext("explorer", "scan-shell"),
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(screen.getByRole("heading", { name: /current result/i })).toBeInTheDocument();
+    });
+  });
+
+  it("initial_workspace_restores_summary_only_explorer_context_in_degraded_mode", async () => {
+    render(
+      <App
+        client={createWorkspaceClient({
+          scanStatus: makeCompletedStatus("scan-summary"),
+          scan: makeSummaryOnlyScan("scan-summary"),
+          restoreContext: makeWorkspaceRestoreContext("explorer", "scan-summary"),
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(
+        screen.getByText(/saved before folder browsing support\. run a fresh scan/i),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("cold_start_does_not_restore_duplicates_or_cleanup_from_session_only_context", async () => {
+    render(
+      <App
+        client={createWorkspaceClient({
+          scanStatus: makeCompletedStatus(),
+          scan: makeBrowseableScan(),
+          restoreContext: makeWorkspaceRestoreContext("duplicates", "scan-shell"),
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+
+    expect(screen.getByRole("tab", { name: "Duplicates" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+  });
+
+  it("N1_START_SCAN_switches_back_to_scan_for_the_matching_running_snapshot", async () => {
+    const harness = createWorkspaceHarness();
+    const startScanDeferred = defer<{ scanId: string }>();
+    const logger = vi.spyOn(workspaceShellLogger, "log").mockImplementation(() => {});
+    harness.client.startScan = vi.fn(async () => startScanDeferred.promise);
+
+    render(<App client={harness.client} />);
+    await waitForWorkspaceShell();
+    await activateWorkspace("Scan");
+
+    fireEvent.change(screen.getByLabelText(/scan root/i), {
+      target: { value: "C:\\Users\\xiongxianfei\\Downloads" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /start scan/i }));
+
+    await activateWorkspace("History");
+
+    await harness.emitScan(makeRunningStatus());
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Scan" })).toHaveAttribute("aria-selected", "true");
+    });
+
+    await act(async () => {
+      startScanDeferred.resolve({ scanId: "scan-running" });
+    });
+
+    await waitFor(() => {
+      expect(logger).toHaveBeenCalledWith(
+        "workspace_auto_switch_applied",
+        expect.objectContaining({
+          reason: "N1_START_SCAN",
+          operationId: "scan-running",
+          target: "scan",
+        }),
+      );
+      expect(logger).toHaveBeenCalledWith(
+        "workspace_auto_switch_skipped_duplicate",
+        expect.objectContaining({
+          reason: "N1_START_SCAN",
+          operationId: "scan-running",
+          target: "scan",
+        }),
+      );
+    });
+
+    logger.mockRestore();
+  });
+
+  it("N2_SCAN_COMPLETED_AND_OPENED_switches_to_explorer_after_persistence_and_open", async () => {
+    const harness = createWorkspaceHarness({
+      scan: makeBrowseableScan(),
+    });
+
+    render(<App client={harness.client} />);
+    await waitForWorkspaceShell();
+    await activateWorkspace("History");
+
+    await harness.emitScan({
+      ...makeCompletedStatus(),
+      scanId: "scan-running",
+      completedScanId: "scan-shell",
+    });
+
+    await waitFor(() => {
+      expect(harness.client.openScanHistory).toHaveBeenCalledWith("scan-shell");
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+  });
+
+  it("N4_START_DUPLICATE_ANALYSIS_restores_duplicates_when_acceptance_finishes_after_manual_navigation", async () => {
+    const harness = createWorkspaceHarness({
+      scanStatus: makeCompletedStatus(),
+      scan: makeBrowseableScan(),
+      restoreContext: makeWorkspaceRestoreContext("explorer", "scan-shell"),
+    });
+    const duplicateDeferred = defer<{ analysisId: string }>();
+    harness.client.startDuplicateAnalysis = vi.fn(async () => duplicateDeferred.promise);
+
+    render(<App client={harness.client} />);
+    await waitForWorkspaceShell();
+    await activateWorkspace("Duplicates");
+
+    fireEvent.click(screen.getByRole("button", { name: /analyze duplicates/i }));
+    await activateWorkspace("Overview");
+
+    await harness.emitDuplicate({
+      analysisId: "analysis-running",
+      scanId: "scan-shell",
+      state: "running",
+      stage: "grouping",
+      itemsProcessed: 1,
+      groupsEmitted: 0,
+      message: null,
+      completedAnalysisId: null,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Duplicates" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+
+    await act(async () => {
+      duplicateDeferred.resolve({ analysisId: "analysis-running" });
+    });
+  });
+
+  it("background_refresh_does_not_steal_focus", async () => {
+    const harness = createWorkspaceHarness({
+      scanStatus: makeRunningStatus(),
+      scan: makeBrowseableScan(),
+      restoreContext: makeWorkspaceRestoreContext("explorer", "scan-shell"),
+    });
+
+    render(<App client={harness.client} />);
+    await waitForWorkspaceShell();
+    await activateWorkspace("Explorer");
+
+    const explorerTab = screen.getByRole("tab", { name: "Explorer" });
+    explorerTab.focus();
+    expect(explorerTab).toHaveFocus();
+
+    await harness.emitScan({
+      ...makeRunningStatus(),
+      state: "failed",
+      message: "Background scan failed.",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(explorerTab).toHaveFocus();
+      expect(screen.getAllByText(/background scan failed\./i)).toHaveLength(2);
+    });
+  });
+
+  it("replayed_terminal_event_does_not_reset_review_state", async () => {
+    const harness = createWorkspaceHarness({
+      scan: makeBrowseableScan(),
+    });
+
+    render(<App client={harness.client} />);
+    await waitForWorkspaceShell();
+    await activateWorkspace("History");
+
+    await harness.emitScan({
+      ...makeCompletedStatus(),
+      scanId: "scan-running",
+      completedScanId: "scan-shell",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /sort by name/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /sort by name/i })).toHaveClass("is-active");
+    });
+
+    await harness.emitScan({
+      ...makeCompletedStatus(),
+      scanId: "scan-running",
+      completedScanId: "scan-shell",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /sort by name/i })).toHaveClass("is-active");
+      expect(screen.getByRole("button", { name: /sort by size/i })).not.toHaveClass("is-active");
     });
   });
 });

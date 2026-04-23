@@ -30,12 +30,17 @@ import type {
   ScanHistoryEntry,
   ScanRunSummary,
   ScanStatusSnapshot,
+  WorkspaceRestoreContext,
 } from "./lib/spaceSiftTypes";
 import {
   deriveGlobalStatus,
+  getNextSafeActionReason,
+  resolveInitialWorkspace,
   workspaceDefinitions,
+  type WorkspaceNavigationReason,
   type WorkspaceTab,
 } from "./workspaceNavigation";
+import { workspaceShellLogger } from "./workspaceShellLogger";
 
 const safetyPrinciples = [
   {
@@ -64,6 +69,14 @@ type BrowseableScan = CompletedScan & {
 
 type DuplicateKeepSelections = Record<string, string>;
 type DuplicateDisclosureState = Record<string, boolean>;
+type RestoreContextResult =
+  | { kind: "loaded"; context: WorkspaceRestoreContext | null }
+  | { kind: "error"; error: unknown };
+type OpenStoredScanOptions = {
+  nextNotice?: string;
+  preservedDuplicateStatusSnapshot?: DuplicateStatusSnapshot;
+  persistWorkspace?: WorkspaceTab;
+};
 
 function formatBytes(bytes: number) {
   return `${bytes} bytes`;
@@ -122,6 +135,14 @@ function describeError(error: unknown) {
   }
 
   return "The requested operation did not complete.";
+}
+
+function buildWorkspaceSwitchKey(
+  reason: WorkspaceNavigationReason,
+  target: WorkspaceTab,
+  operationId?: string | null,
+) {
+  return `${reason}:${target}:${operationId ?? "none"}`;
 }
 
 function getPathLabel(path: string) {
@@ -424,9 +445,17 @@ function App({ client = unsupportedClient }: AppProps) {
     useState<PrivilegedCleanupCapability | null>(null);
   const [permanentDeleteConfirmed, setPermanentDeleteConfirmed] = useState(false);
   const [resumeEnabled, setResumeEnabled] = useState(false);
+  const [shellNotice, setShellNotice] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const workspaceRestoreContextRef = useRef<WorkspaceRestoreContext | null>(null);
+  const lastOpenedScanIdRef = useRef<string | null>(null);
+  const appliedWorkspaceSwitchesRef = useRef<Set<string>>(new Set());
+  const pendingScanStartRef = useRef<{ rootPath: string } | null>(null);
+  const pendingDuplicateStartRef = useRef<{ scanId: string } | null>(null);
+  const startupResolutionPendingRef = useRef(true);
+  const manualWorkspaceDuringStartupRef = useRef<WorkspaceTab | null>(null);
   const workspaceTabRefs = useRef<Record<WorkspaceTab, HTMLButtonElement | null>>({
     overview: null,
     scan: null,
@@ -459,9 +488,67 @@ function App({ client = unsupportedClient }: AppProps) {
     });
   });
 
-  function activateWorkspace(tab: WorkspaceTab) {
+  const persistWorkspaceRestoreContext = useEffectEvent(
+    async (lastWorkspace: WorkspaceTab, lastOpenedScanId: string | null) => {
+      const currentContext = workspaceRestoreContextRef.current;
+      if (
+        currentContext?.lastWorkspace === lastWorkspace &&
+        currentContext.lastOpenedScanId === lastOpenedScanId
+      ) {
+        return;
+      }
+
+      try {
+        const savedContext = await client.saveWorkspaceRestoreContext({
+          lastWorkspace,
+          lastOpenedScanId,
+        });
+        workspaceRestoreContextRef.current = savedContext;
+      } catch (error) {
+        workspaceShellLogger.log("workspace_restore_context_save_failed", {
+          lastWorkspace,
+          lastOpenedScanId,
+          message: describeError(error),
+        });
+      }
+    },
+  );
+
+  const activateWorkspace = useEffectEvent((tab: WorkspaceTab) => {
+    if (startupResolutionPendingRef.current) {
+      manualWorkspaceDuringStartupRef.current = tab;
+    }
     setActiveWorkspace(tab);
-  }
+    void persistWorkspaceRestoreContext(tab, lastOpenedScanIdRef.current);
+  });
+
+  const applyContractualWorkspaceSwitch = useEffectEvent(
+    (
+      target: WorkspaceTab,
+      reason: Exclude<WorkspaceNavigationReason, "manual" | "startup">,
+      operationId?: string | null,
+    ) => {
+      const key = buildWorkspaceSwitchKey(reason, target, operationId);
+      if (appliedWorkspaceSwitchesRef.current.has(key)) {
+        workspaceShellLogger.log("workspace_auto_switch_skipped_duplicate", {
+          reason,
+          target,
+          operationId: operationId ?? null,
+        });
+        return false;
+      }
+
+      appliedWorkspaceSwitchesRef.current.add(key);
+      setActiveWorkspace(target);
+      void persistWorkspaceRestoreContext(target, lastOpenedScanIdRef.current);
+      workspaceShellLogger.log("workspace_auto_switch_applied", {
+        reason,
+        target,
+        operationId: operationId ?? null,
+      });
+      return true;
+    },
+  );
 
   function setWorkspaceTabRef(tab: WorkspaceTab, element: HTMLButtonElement | null) {
     workspaceTabRefs.current[tab] = element;
@@ -571,43 +658,51 @@ function App({ client = unsupportedClient }: AppProps) {
     }
   });
 
-  const openStoredScan = useEffectEvent(
-    async (
-      scanId: string,
-      nextNotice?: string,
-      preservedDuplicateStatusSnapshot?: DuplicateStatusSnapshot,
-    ) => {
-      try {
-        const result = await client.openScanHistory(scanId);
-        startTransition(() => {
-          const preservedDuplicateStatus =
-            preservedDuplicateStatusSnapshot?.state === "running" &&
-            preservedDuplicateStatusSnapshot.scanId === result.scanId
-              ? preservedDuplicateStatusSnapshot
-              : duplicateStatus.state === "running" && duplicateStatus.scanId === result.scanId
-                ? duplicateStatus
-                : idleDuplicateStatus;
-          setCurrentScan(result);
-          setCurrentExplorerPath(result.rootPath);
-          setExplorerSortMode("size");
-          setNotice(nextNotice ?? `Loaded ${scanId} from local history.`);
-          setErrorMessage(null);
-          setDuplicateStatus(preservedDuplicateStatus);
-          setDuplicateAnalysis(null);
-          setDuplicateKeepSelections({});
-          setExpandedDuplicateGroups({});
-          setSelectedCleanupRuleIds([]);
-          setCleanupPreview(null);
-          setCleanupExecutionResult(null);
-          setPermanentDeleteConfirmed(false);
-        });
-      } catch (error) {
-        startTransition(() => {
-          setErrorMessage(describeError(error));
-        });
-      }
+  const applyOpenedScanResult = useEffectEvent(
+    (result: CompletedScan, options?: OpenStoredScanOptions) => {
+      startTransition(() => {
+        const preservedDuplicateStatus =
+          options?.preservedDuplicateStatusSnapshot?.state === "running" &&
+          options.preservedDuplicateStatusSnapshot.scanId === result.scanId
+            ? options.preservedDuplicateStatusSnapshot
+            : duplicateStatus.state === "running" && duplicateStatus.scanId === result.scanId
+              ? duplicateStatus
+              : idleDuplicateStatus;
+        setCurrentScan(result);
+        setCurrentExplorerPath(result.rootPath);
+        setExplorerSortMode("size");
+        setNotice(options?.nextNotice ?? `Loaded ${result.scanId} from local history.`);
+        setErrorMessage(null);
+        setDuplicateStatus(preservedDuplicateStatus);
+        setDuplicateAnalysis(null);
+        setDuplicateKeepSelections({});
+        setExpandedDuplicateGroups({});
+        setSelectedCleanupRuleIds([]);
+        setCleanupPreview(null);
+        setCleanupExecutionResult(null);
+        setPermanentDeleteConfirmed(false);
+      });
+
+      lastOpenedScanIdRef.current = result.scanId;
+      void persistWorkspaceRestoreContext(
+        options?.persistWorkspace ?? activeWorkspace,
+        result.scanId,
+      );
+      return result;
     },
   );
+
+  const openStoredScan = useEffectEvent(async (scanId: string, options?: OpenStoredScanOptions) => {
+    try {
+      const result = await client.openScanHistory(scanId);
+      return applyOpenedScanResult(result, options);
+    } catch (error) {
+      startTransition(() => {
+        setErrorMessage(describeError(error));
+      });
+      return null;
+    }
+  });
 
   const handleProgress = useEffectEvent((snapshot: ScanStatusSnapshot) => {
     startTransition(() => {
@@ -623,13 +718,55 @@ function App({ client = unsupportedClient }: AppProps) {
       }
     });
 
+    if (
+      snapshot.state === "running" &&
+      snapshot.scanId &&
+      ((pendingScanStartRef.current &&
+        snapshot.rootPath &&
+        snapshot.rootPath === pendingScanStartRef.current.rootPath) ||
+        appliedWorkspaceSwitchesRef.current.has(
+          buildWorkspaceSwitchKey("N1_START_SCAN", "scan", snapshot.scanId),
+        ))
+    ) {
+      applyContractualWorkspaceSwitch("scan", "N1_START_SCAN", snapshot.scanId);
+    }
+
     if (snapshot.state === "completed" && snapshot.completedScanId) {
-      void openStoredScan(snapshot.completedScanId);
+      pendingScanStartRef.current = null;
+      const completedScanId = snapshot.completedScanId;
+      const operationId = completedScanId;
+      const completionSwitchKey = buildWorkspaceSwitchKey(
+        "N2_SCAN_COMPLETED_AND_OPENED",
+        "explorer",
+        operationId,
+      );
+      if (appliedWorkspaceSwitchesRef.current.has(completionSwitchKey)) {
+        workspaceShellLogger.log("workspace_auto_switch_skipped_duplicate", {
+          reason: "N2_SCAN_COMPLETED_AND_OPENED",
+          target: "explorer",
+          operationId,
+        });
+        return;
+      }
+
+      void (async () => {
+        const openedScan = await openStoredScan(completedScanId, {
+          persistWorkspace: activeWorkspace,
+        });
+        if (openedScan) {
+          applyContractualWorkspaceSwitch(
+            "explorer",
+            "N2_SCAN_COMPLETED_AND_OPENED",
+            operationId,
+          );
+        }
+      })();
       void loadHistory();
       void loadScanRuns();
     }
 
     if (snapshot.state === "cancelled" || snapshot.state === "failed") {
+      pendingScanStartRef.current = null;
       void loadScanRuns();
     }
   });
@@ -646,12 +783,37 @@ function App({ client = unsupportedClient }: AppProps) {
       }
     });
 
+    if (
+      snapshot.state === "running" &&
+      snapshot.scanId &&
+      ((pendingDuplicateStartRef.current &&
+        snapshot.scanId === pendingDuplicateStartRef.current.scanId) ||
+        appliedWorkspaceSwitchesRef.current.has(
+          buildWorkspaceSwitchKey(
+            "N4_START_DUPLICATE_ANALYSIS",
+            "duplicates",
+            snapshot.analysisId ?? snapshot.scanId,
+          ),
+        ))
+    ) {
+      applyContractualWorkspaceSwitch(
+        "duplicates",
+        "N4_START_DUPLICATE_ANALYSIS",
+        snapshot.analysisId ?? snapshot.scanId,
+      );
+    }
+
     if (snapshot.state === "completed" && snapshot.completedAnalysisId) {
+      pendingDuplicateStartRef.current = null;
       if (duplicateAnalysis?.analysisId === snapshot.completedAnalysisId) {
         return;
       }
 
       void openStoredDuplicateAnalysis(snapshot.completedAnalysisId);
+    }
+
+    if (snapshot.state === "cancelled" || snapshot.state === "failed") {
+      pendingDuplicateStartRef.current = null;
     }
   });
 
@@ -659,6 +821,8 @@ function App({ client = unsupportedClient }: AppProps) {
     let isActive = true;
     let unsubscribeScan = () => {};
     let unsubscribeDuplicate = () => {};
+    startupResolutionPendingRef.current = true;
+    manualWorkspaceDuringStartupRef.current = null;
 
     void (async () => {
       try {
@@ -667,6 +831,7 @@ function App({ client = unsupportedClient }: AppProps) {
           initialHistory,
           initialScanRuns,
           initialDuplicateStatus,
+          restoreContextResult,
           initialCleanupRules,
           capability,
           scanUnlisten,
@@ -676,6 +841,10 @@ function App({ client = unsupportedClient }: AppProps) {
           client.listScanHistory(),
           client.listScanRuns(),
           client.getDuplicateAnalysisStatus(),
+          client
+            .getWorkspaceRestoreContext()
+            .then<RestoreContextResult>((context) => ({ kind: "loaded", context }))
+            .catch<RestoreContextResult>((error) => ({ kind: "error", error })),
           client.listCleanupRules(),
           client.getPrivilegedCleanupCapability(),
           client.subscribeToScanProgress((snapshot) => {
@@ -698,6 +867,55 @@ function App({ client = unsupportedClient }: AppProps) {
 
         unsubscribeScan = scanUnlisten;
         unsubscribeDuplicate = duplicateUnlisten;
+        let restoreContext: WorkspaceRestoreContext | null = null;
+        let startupNotice: string | null = null;
+        let startupLoadedScan: CompletedScan | null = null;
+
+        if (restoreContextResult.kind === "loaded") {
+          restoreContext = restoreContextResult.context;
+          workspaceRestoreContextRef.current = restoreContext;
+          lastOpenedScanIdRef.current = restoreContext?.lastOpenedScanId ?? null;
+        } else {
+          startupNotice = "Saved workspace context could not be read. Opening Overview instead.";
+          workspaceShellLogger.log("workspace_restore_context_load_failed", {
+            message: describeError(restoreContextResult.error),
+          });
+        }
+
+        if (restoreContext?.lastWorkspace === "explorer" && restoreContext.lastOpenedScanId) {
+          try {
+            startupLoadedScan = await client.openScanHistory(restoreContext.lastOpenedScanId);
+          } catch (error) {
+            startupNotice =
+              "Saved Explorer context could not be restored. Opening Overview instead.";
+            workspaceShellLogger.log("workspace_restore_context_validation_failed", {
+              lastOpenedScanId: restoreContext.lastOpenedScanId,
+              message: describeError(error),
+            });
+          }
+        }
+
+        if (!startupLoadedScan && initialStatus.state === "completed" && initialStatus.completedScanId) {
+          try {
+            startupLoadedScan = await client.openScanHistory(initialStatus.completedScanId);
+          } catch (error) {
+            if (isActive) {
+              startTransition(() => {
+                setErrorMessage(describeError(error));
+              });
+            }
+          }
+        }
+
+        const initialWorkspace = resolveInitialWorkspace({
+          scanStatus: initialStatus,
+          duplicateStatus: initialDuplicateStatus,
+          interruptedRuns: initialScanRuns,
+          restoreContext,
+          loadedScan: startupLoadedScan,
+        });
+        const startupWorkspace = manualWorkspaceDuringStartupRef.current ?? initialWorkspace;
+
         startTransition(() => {
           setScanStatus(initialStatus);
           setDuplicateStatus(initialDuplicateStatus);
@@ -705,31 +923,37 @@ function App({ client = unsupportedClient }: AppProps) {
           setScanRuns(initialScanRuns);
           setCleanupRules(initialCleanupRules);
           setPrivilegedCapability(capability);
+          setShellNotice(startupNotice);
+          setActiveWorkspace(startupWorkspace);
           if (initialStatus.rootPath) {
             setRootPath(initialStatus.rootPath);
           }
         });
 
-        if (initialStatus.state === "completed" && initialStatus.completedScanId) {
-          await openStoredScan(
-            initialStatus.completedScanId,
-            undefined,
-            initialDuplicateStatus,
-          );
-        }
+        if (startupLoadedScan) {
+          applyOpenedScanResult(startupLoadedScan, {
+            nextNotice: `Loaded ${startupLoadedScan.scanId} from local history.`,
+            preservedDuplicateStatusSnapshot: initialDuplicateStatus,
+            persistWorkspace:
+              restoreContext?.lastWorkspace === "explorer" ? "explorer" : startupWorkspace,
+          });
 
-        if (
-          initialDuplicateStatus.state === "completed" &&
-          initialDuplicateStatus.completedAnalysisId
-        ) {
-          await openStoredDuplicateAnalysis(initialDuplicateStatus.completedAnalysisId);
+          if (
+            initialDuplicateStatus.state === "completed" &&
+            initialDuplicateStatus.completedAnalysisId &&
+            initialDuplicateStatus.scanId === startupLoadedScan.scanId
+          ) {
+            await openStoredDuplicateAnalysis(initialDuplicateStatus.completedAnalysisId);
+          }
         }
+        startupResolutionPendingRef.current = false;
       } catch (error) {
         if (isActive) {
           startTransition(() => {
             setErrorMessage(describeError(error));
           });
         }
+        startupResolutionPendingRef.current = false;
       }
     })();
 
@@ -762,6 +986,7 @@ function App({ client = unsupportedClient }: AppProps) {
     setCurrentScan(null);
     setCurrentExplorerPath(null);
     setExplorerSortMode("size");
+    pendingScanStartRef.current = { rootPath: normalizedRoot };
     resetReviewState();
 
     try {
@@ -785,12 +1010,15 @@ function App({ client = unsupportedClient }: AppProps) {
         });
         setNotice((currentValue) => currentValue ?? `Scanning ${normalizedRoot}`);
       });
+      applyContractualWorkspaceSwitch("scan", "N1_START_SCAN", started.scanId);
       void loadScanRuns();
     } catch (error) {
+      pendingScanStartRef.current = null;
       startTransition(() => {
         setErrorMessage(describeError(error));
       });
     } finally {
+      pendingScanStartRef.current = null;
       setIsSubmitting(false);
     }
   }
@@ -812,7 +1040,13 @@ function App({ client = unsupportedClient }: AppProps) {
 
   async function handleReopenScan(scanId: string) {
     setErrorMessage(null);
-    await openStoredScan(scanId, `Loaded ${scanId} from local history.`);
+    const reopenedScan = await openStoredScan(scanId, {
+      nextNotice: `Loaded ${scanId} from local history.`,
+      persistWorkspace: "history",
+    });
+    if (reopenedScan) {
+      applyContractualWorkspaceSwitch("explorer", "N3_OPEN_HISTORY_SCAN", scanId);
+    }
   }
 
   async function handleResumeRun(run: ScanRunSummary) {
@@ -892,6 +1126,7 @@ function App({ client = unsupportedClient }: AppProps) {
     setDuplicateAnalysis(null);
     setDuplicateKeepSelections({});
     setExpandedDuplicateGroups({});
+    pendingDuplicateStartRef.current = { scanId: currentScan.scanId };
     resetCleanupState();
     setDuplicateStatus({
       analysisId: null,
@@ -918,7 +1153,13 @@ function App({ client = unsupportedClient }: AppProps) {
           completedAnalysisId: currentValue.completedAnalysisId,
         }));
       });
+      applyContractualWorkspaceSwitch(
+        "duplicates",
+        "N4_START_DUPLICATE_ANALYSIS",
+        started.analysisId,
+      );
     } catch (error) {
+      pendingDuplicateStartRef.current = null;
       startTransition(() => {
         setDuplicateStatus(idleDuplicateStatus);
         setErrorMessage(describeError(error));
@@ -1138,7 +1379,30 @@ function App({ client = unsupportedClient }: AppProps) {
     nextSafeAction?.label ??
     globalStatus.noActionLabel ??
     "No safe next action right now.";
-  const shellNotices = [...new Set([scanStatus.message, notice].filter(Boolean))];
+  const shellNotices = [...new Set([scanStatus.message, notice, shellNotice].filter(Boolean))];
+
+  function handleGlobalStatusAction() {
+    if (!nextSafeAction) {
+      return;
+    }
+
+    const navigationReason = getNextSafeActionReason(nextSafeAction);
+    if (navigationReason === "N5_REQUEST_CLEANUP_PREVIEW") {
+      applyContractualWorkspaceSwitch("cleanup", navigationReason, currentScan?.scanId ?? null);
+      return;
+    }
+
+    if (navigationReason === "N6_REVIEW_INTERRUPTED_RUNS") {
+      applyContractualWorkspaceSwitch(
+        "history",
+        navigationReason,
+        interruptedRuns[0]?.header.runId ?? null,
+      );
+      return;
+    }
+
+    activateWorkspace(nextSafeAction.target);
+  }
 
   function renderOverviewPanel() {
     return (
@@ -2349,7 +2613,7 @@ function App({ client = unsupportedClient }: AppProps) {
               <button
                 type="button"
                 className="primary-button"
-                onClick={() => activateWorkspace(nextSafeAction.target)}
+                onClick={handleGlobalStatusAction}
               >
                 {nextSafeAction.label}
               </button>
