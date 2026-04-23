@@ -653,6 +653,25 @@ describe("Space Sift workspace navigation shell", () => {
     expect(client.resumeScanRun).not.toHaveBeenCalled();
   });
 
+  it("safety_panel_keeps_approved_durable_guidance", async () => {
+    render(<App client={createWorkspaceClient()} />);
+
+    await activateWorkspace("Safety");
+
+    const safetyPanel = screen.getByRole("tabpanel", { name: "Safety" });
+    const guidanceRegion = within(safetyPanel).getByRole("region", {
+      name: /safety guidance/i,
+    });
+
+    expect(guidanceRegion).toHaveTextContent(/unprivileged/i);
+    expect(guidanceRegion).toHaveTextContent(/recycle bin/i);
+    expect(guidanceRegion).toHaveTextContent(/local sqlite history/i);
+    expect(guidanceRegion).toHaveTextContent(/protected-path cleanup/i);
+    expect(guidanceRegion).toHaveTextContent(/permanent delete/i);
+    expect(guidanceRegion).toHaveTextContent(/resume actions use can_resume/i);
+    expect(guidanceRegion).not.toHaveTextContent(/sample|prototype|cloud sync|telemetry/i);
+  });
+
   it("overview_metrics_render_real_or_explicit_empty_states", async () => {
     render(<App client={createWorkspaceClient()} />);
 

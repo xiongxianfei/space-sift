@@ -291,7 +291,7 @@ release automation.
 - [x] Matching test spec created
 - [x] M1 complete
 - [x] M2 complete
-- [ ] M3 complete
+- [x] M3 complete
 - [ ] M4 complete
 - [ ] Branch-wide verification complete
 
@@ -332,6 +332,12 @@ release automation.
   - Reason: the core scan-review panels needed prototype-aligned panel/card,
     command, table, and degraded-state composition without changing scan,
     history, Explorer handoff, or resume behavior.
+- 2026-04-24: Implemented M3 with explicit Duplicates, Cleanup, and Safety
+  review regions.
+  - Reason: the duplicate-review cards, cleanup funnel, and durable safety
+    guidance needed prototype-aligned structure while preserving Recycle Bin
+    priority, permanent-delete gating, protected-path exclusion, and
+    `can_resume` actionability.
 
 ## Surprises and discoveries
 
@@ -348,6 +354,9 @@ release automation.
   existing panel functions already preserved the approved workflows; the
   implementation added truthful metric-card state, accessible region names, and
   light styling hooks around the existing behavior.
+- M3 did not require backend, persistence, cleanup capability, or duplicate
+  selection changes. The existing workflow state already provided the needed
+  guardrails; the implementation made the review stages explicit and testable.
 
 ## Aligned-surface audit
 
@@ -369,6 +378,15 @@ release automation.
 - Visual screenshot evidence: still unaffected with rationale for M2 closeout.
   M4 owns final screenshot or human-visible comparison after M3 panel fidelity
   is implemented.
+- `src-tauri/`: unaffected with rationale for M3. The milestone changed only
+  React markup, CSS, and frontend tests; no Tauri command, event, persistence,
+  scan, duplicate, cleanup, or resume contract changed.
+- Overview, Scan, History, and Explorer panel fidelity: unaffected with
+  rationale. M2 owns those panels; M3 intentionally touched only Duplicates,
+  Cleanup, and Safety plus shared safety guidance copy.
+- Visual screenshot evidence: still unaffected with rationale for M3 closeout.
+  M4 owns final screenshot or human-visible comparison across the required
+  width bands.
 
 ## Validation notes
 
@@ -431,6 +449,47 @@ release automation.
 - 2026-04-24: `git diff --check -- src\App.tsx src\App.css src\workspace-navigation.test.tsx src\scan-history.test.tsx src\results-explorer.test.tsx`
   - passed
   - output contained CRLF conversion warnings only
+- 2026-04-24: `npm run test -- src/duplicates.test.tsx`
+  - failed after M3 tests were added, before production changes
+  - expected failure: missing duplicate analysis controls/status, duplicate
+    delete summary, and verified duplicate review regions
+- 2026-04-24: `npm run test -- src/cleanup.test.tsx`
+  - failed after M3 tests were added, before production changes
+  - expected failure: missing cleanup source selection, preview review,
+    validation issues, Recycle Bin action, and advanced permanent-delete
+    regions
+- 2026-04-24: `npm run test -- src/workspace-navigation.test.tsx`
+  - failed after M3 tests were added, before production changes
+  - expected failure: missing Safety guidance region
+- 2026-04-24: `npm run test -- src/duplicates.test.tsx`
+  - passed after M3 implementation
+  - result: 12 tests passed
+- 2026-04-24: `npm run test -- src/cleanup.test.tsx`
+  - passed after M3 implementation
+  - result: 6 tests passed
+- 2026-04-24: `npm run test -- src/workspace-navigation.test.tsx`
+  - passed after M3 implementation
+  - result: 40 tests passed
+- 2026-04-24: `npm run lint`
+  - passed after M3 implementation
+- 2026-04-24: `npm run test`
+  - failed once after M3 implementation
+  - exact failures: `App.test.tsx` still expected the durable phrase `local
+    SQLite storage`; `tsc` rejected test fixture code `protected_path` because
+    `CleanupIssueCode` already models this as `requires_elevation`
+  - fixed by preserving the old stable SQLite wording and using the existing
+    typed cleanup issue code
+- 2026-04-24: `npm run test`
+  - passed after M3 validation fixes
+  - result: 7 test files passed, 82 tests passed
+- 2026-04-24: `npm run build`
+  - failed once after M3 implementation
+  - exact failure: `src/cleanup.test.tsx` used issue code `protected_path`,
+    which is not assignable to `CleanupIssueCode`
+  - fixed by using the existing `requires_elevation` code while preserving the
+    protected-path visible issue summary
+- 2026-04-24: `npm run build`
+  - passed after M3 validation fixes
 
 ## Outcome and retrospective
 
@@ -444,10 +503,16 @@ release automation.
   command/progress region and active-scan detail region; History separates
   completed scan history from interrupted-run continuity; Explorer exposes a
   read-only browseable result region and a summary-only compatibility region.
+- M3 is implemented and validation-complete. Duplicates now expose distinct
+  analysis controls, status, delete summary, and verified group review regions;
+  Cleanup now exposes source, preview, validation issue, Recycle Bin execution,
+  and advanced permanent-delete stages; Safety now presents durable local,
+  unprivileged, Recycle Bin, protected-path, permanent-delete, and resume
+  guidance.
 
 ## Readiness
 
-This plan is active. M2 is implemented and ready for code review.
+This plan is active. M3 is implemented and ready for code review.
 
-M3 and M4 remain unstarted. Branch-wide readiness is blocked until the
-remaining milestones are implemented and final visual verification is recorded.
+M4 remains unstarted. Branch-wide readiness is blocked until the remaining
+milestone is implemented and final visual verification is recorded.

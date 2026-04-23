@@ -215,7 +215,13 @@ function makeCleanupPreview(scanId: string): CleanupPreview {
         sourceLabels: ["Files in Temp folders"],
       },
     ],
-    issues: [],
+    issues: [
+      {
+        path: "C:\\Users\\xiongxianfei\\Downloads\\Windows\\protected.log",
+        code: "requires_elevation",
+        summary: "Protected path requires a separate elevated flow.",
+      },
+    ],
   };
 }
 
@@ -373,6 +379,64 @@ describe("Space Sift cleanup workflow", () => {
       expect(screen.getByText(/cleanup completed/i)).toBeInTheDocument();
       expect(screen.getByText(/fresh scan is recommended/i)).toBeInTheDocument();
     });
+  }, uiTestTimeout);
+
+  it("cleanup_funnel_keeps_sources_preview_issues_and_destructive_actions_separate", async () => {
+    const client = createCleanupClient();
+    render(<App client={client} />);
+    await activateWorkspace("Cleanup");
+
+    const cleanupPanel = getCleanupPanel();
+    const sourceRegion = await within(cleanupPanel).findByRole(
+      "region",
+      { name: /cleanup source selection/i },
+      { timeout: uiReadyTimeout },
+    );
+    expect(within(sourceRegion).getByLabelText(/files in temp folders/i)).toBeInTheDocument();
+    expect(
+      within(cleanupPanel).queryByRole("button", { name: /permanently delete selected files/i }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(within(sourceRegion).getByLabelText(/files in temp folders/i));
+    fireEvent.click(within(cleanupPanel).getByRole("button", { name: /refresh cleanup preview/i }));
+
+    const previewRegion = await within(cleanupPanel).findByRole("region", {
+      name: /cleanup preview review/i,
+    });
+    expect(previewRegion).toHaveTextContent(/2 cleanup candidates/i);
+    expect(within(previewRegion).getByRole("list", { name: /cleanup candidates/i })).toBeInTheDocument();
+
+    const issuesRegion = within(cleanupPanel).getByRole("region", {
+      name: /cleanup validation issues/i,
+    });
+    expect(issuesRegion).toHaveTextContent(/protected path requires a separate elevated flow/i);
+
+    const recycleRegion = within(cleanupPanel).getByRole("region", {
+      name: /recycle bin cleanup action/i,
+    });
+    const recycleButton = within(recycleRegion).getByRole("button", {
+      name: /move selected files to recycle bin/i,
+    });
+    expect(recycleButton).toHaveClass("primary-button");
+    expect(
+      within(recycleRegion).queryByRole("button", { name: /permanently delete selected files/i }),
+    ).not.toBeInTheDocument();
+
+    const advancedRegion = within(cleanupPanel).getByRole("region", {
+      name: /advanced permanent delete/i,
+    });
+    expect(
+      within(advancedRegion).queryByRole("button", { name: /permanently delete selected files/i }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(advancedRegion).getByLabelText(/i understand permanent delete cannot be undone/i),
+    );
+    const permanentButton = within(advancedRegion).getByRole("button", {
+      name: /permanently delete selected files/i,
+    });
+    expect(permanentButton).toHaveClass("secondary-button");
+    expect(permanentButton).toHaveClass("danger-button");
   }, uiTestTimeout);
 
   it("keeps permanent delete behind an explicit advanced confirmation path", async () => {

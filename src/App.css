@@ -825,6 +825,11 @@ select {
   border: 1px solid rgba(95, 154, 213, 0.2);
 }
 
+.duplicate-status-stage {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
 .duplicate-summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1020,6 +1025,26 @@ select {
 
 .duplicate-note {
   margin-bottom: 0;
+}
+
+.cleanup-funnel-stage {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cleanup-funnel-stage.cleanup-actions {
+  align-items: start;
+  background: rgba(92, 167, 123, 0.08);
+  border-color: rgba(92, 167, 123, 0.22);
+}
+
+.advanced-delete-stage {
+  background: rgba(160, 62, 62, 0.08);
+  border-color: rgba(160, 62, 62, 0.24);
 }
 
 .compatibility-note {

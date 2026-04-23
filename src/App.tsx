@@ -52,8 +52,20 @@ const safetyPrinciples = [
     body: "Cleanup defaults to the Recycle Bin path, with permanent delete kept behind an explicit advanced control.",
   },
   {
-    title: "Local-only history",
-    body: "Completed scans are cached in local SQLite storage so reopening a result never needs a network connection.",
+    title: "Local SQLite history",
+    body: "Completed scans stay local-only in local SQLite storage so reopening a result never needs a network connection.",
+  },
+  {
+    title: "Protected paths fail closed",
+    body: "Protected-path cleanup stays outside the unprivileged desktop flow until a separate capability is explicitly available.",
+  },
+  {
+    title: "Explicit destructive actions",
+    body: "Permanent delete remains physically separated from the safe cleanup path and requires an advanced confirmation.",
+  },
+  {
+    title: "Resume actionability",
+    body: "Resume actions use can_resume as the source of truth, so stored resume metadata alone never makes a run actionable.",
   },
 ];
 
@@ -2296,10 +2308,14 @@ function App({ client = unsupportedClient }: AppProps) {
             </p>
           ) : (
             <div className="duplicate-layout">
-              <div className="duplicate-toolbar">
+              <section
+                className="duplicate-toolbar"
+                role="region"
+                aria-label="Duplicate analysis controls"
+              >
                 <div>
-                  <span className="status-label">Analysis state</span>
-                  <p className="current-path">{duplicateStatus.state}</p>
+                  <span className="status-label">Loaded scan</span>
+                  <p className="current-path">{currentScan.scanId}</p>
                 </div>
                 <div className="action-row">
                   <button
@@ -2320,18 +2336,42 @@ function App({ client = unsupportedClient }: AppProps) {
                     </button>
                   ) : null}
                 </div>
-              </div>
+              </section>
 
-              {duplicateStatus.state === "running" ? (
-                <div className="duplicate-progress" aria-live="polite">
-                  <span>{getDuplicateStageLabel(duplicateStatus.stage)}</span>
-                  <strong>{duplicateStatus.itemsProcessed} items processed</strong>
+              <section
+                className="duplicate-progress duplicate-status-stage"
+                role="region"
+                aria-label="Duplicate analysis status"
+                aria-live="polite"
+              >
+                <div>
+                  <span className="status-label">Analysis state</span>
+                  <p className="current-path">{duplicateStatus.state}</p>
                 </div>
-              ) : null}
+                <div>
+                  <span className="status-label">Progress</span>
+                  {duplicateStatus.state === "running" ? (
+                    <>
+                      <span>{getDuplicateStageLabel(duplicateStatus.stage)}</span>
+                      <strong>{duplicateStatus.itemsProcessed} items processed</strong>
+                    </>
+                  ) : (
+                    <strong>
+                      {duplicateStatus.completedAnalysisId
+                        ? `${duplicateStatus.groupsEmitted} groups emitted`
+                        : "No active analysis"}
+                    </strong>
+                  )}
+                </div>
+              </section>
 
               {duplicateAnalysis ? (
                 <>
-                  <div className="duplicate-summary-grid">
+                  <section
+                    className="duplicate-summary-grid"
+                    role="region"
+                    aria-label="Duplicate delete summary"
+                  >
                     <article className="summary-card">
                       <span>Duplicate groups</span>
                       <strong>{duplicateAnalysis.groups.length} duplicate groups</strong>
@@ -2347,14 +2387,15 @@ function App({ client = unsupportedClient }: AppProps) {
                       <span>Reclaimable bytes</span>
                       <strong>{formatBytes(duplicatePreview.reclaimableBytes)}</strong>
                     </article>
-                  </div>
+                  </section>
 
-                  {duplicateAnalysis.groups.length === 0 ? (
-                    <p className="empty-state">
-                      No fully verified duplicate groups remain in this scan result.
-                    </p>
-                  ) : (
-                    <div className="duplicate-groups" role="list" aria-label="Duplicate groups">
+                  <section role="region" aria-label="Verified duplicate review">
+                    {duplicateAnalysis.groups.length === 0 ? (
+                      <p className="empty-state">
+                        No fully verified duplicate groups remain in this scan result.
+                      </p>
+                    ) : (
+                      <div className="duplicate-groups" role="list" aria-label="Duplicate groups">
                       {orderedDuplicateGroups.map((group) => {
                         const keptPath = resolveKeptPath(group, duplicateKeepSelections);
                         const newestPath = chooseMemberByAge(group.members, "newest");
@@ -2450,8 +2491,9 @@ function App({ client = unsupportedClient }: AppProps) {
                           </article>
                         );
                       })}
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </section>
 
                   {duplicateAnalysis.issues.length > 0 ? (
                     <section className="duplicate-issues">
@@ -2522,115 +2564,131 @@ function App({ client = unsupportedClient }: AppProps) {
             </p>
           ) : (
             <div className="cleanup-layout">
-              <div className="cleanup-source-grid">
-                <article className="summary-card">
-                  <span>Duplicate delete candidates</span>
-                  <strong>{duplicateDeletePaths.length}</strong>
-                </article>
-                <article className="summary-card">
-                  <span>Enabled cleanup rules</span>
-                  <strong>{selectedCleanupRuleIds.length}</strong>
-                </article>
-              </div>
+              <section
+                className="cleanup-funnel-stage"
+                role="region"
+                aria-label="Cleanup source selection"
+              >
+                <div className="cleanup-source-grid">
+                  <article className="summary-card">
+                    <span>Duplicate delete candidates</span>
+                    <strong>{duplicateDeletePaths.length}</strong>
+                  </article>
+                  <article className="summary-card">
+                    <span>Enabled cleanup rules</span>
+                    <strong>{selectedCleanupRuleIds.length}</strong>
+                  </article>
+                </div>
 
-              {cleanupRules.length > 0 ? (
-                <fieldset className="cleanup-rules">
-                  <legend>Built-in cleanup rules</legend>
-                  {cleanupRules.map((rule) => {
-                    const checked = selectedCleanupRuleIds.includes(rule.ruleId);
-                    const visibleRuleLabel =
-                      rule.ruleId === "temp-folder-files"
-                        ? "Temp folder rule"
-                        : rule.ruleId === "download-partials"
-                          ? "Partial download rule"
-                          : rule.label;
-                    return (
-                      <label className="cleanup-rule-option" key={rule.ruleId}>
-                        <input
-                          type="checkbox"
-                          aria-label={rule.label}
-                          checked={checked}
-                          onChange={() => handleToggleCleanupRule(rule.ruleId)}
-                        />
-                        <span>
-                          <strong>{visibleRuleLabel}</strong>
-                          <small>{rule.description}</small>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </fieldset>
-              ) : (
-                <p className="empty-state">No cleanup rules are available in this build.</p>
-              )}
+                {cleanupRules.length > 0 ? (
+                  <fieldset className="cleanup-rules">
+                    <legend>Built-in cleanup rules</legend>
+                    {cleanupRules.map((rule) => {
+                      const checked = selectedCleanupRuleIds.includes(rule.ruleId);
+                      const visibleRuleLabel =
+                        rule.ruleId === "temp-folder-files"
+                          ? "Temp folder rule"
+                          : rule.ruleId === "download-partials"
+                            ? "Partial download rule"
+                            : rule.label;
+                      return (
+                        <label className="cleanup-rule-option" key={rule.ruleId}>
+                          <input
+                            type="checkbox"
+                            aria-label={rule.label}
+                            checked={checked}
+                            onChange={() => handleToggleCleanupRule(rule.ruleId)}
+                          />
+                          <span>
+                            <strong>{visibleRuleLabel}</strong>
+                            <small>{rule.description}</small>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </fieldset>
+                ) : (
+                  <p className="empty-state">No cleanup rules are available in this build.</p>
+                )}
 
-              <div className="action-row">
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={() => void handleRefreshCleanupPreview()}
-                >
-                  Refresh cleanup preview
-                </button>
-              </div>
+                <div className="action-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => void handleRefreshCleanupPreview()}
+                  >
+                    Refresh cleanup preview
+                  </button>
+                </div>
+              </section>
 
               {cleanupPreview ? (
                 <>
-                  <div className="duplicate-summary-grid">
-                    <article className="summary-card">
-                      <span>Preview</span>
-                      <strong>{cleanupPreview.candidates.length} cleanup candidates</strong>
-                    </article>
-                    <article className="summary-card">
-                      <span>Reclaimable bytes</span>
-                      <strong>{formatBytes(cleanupPreview.totalBytes)}</strong>
-                    </article>
-                    <article className="summary-card">
-                      <span>Sources</span>
-                      <strong>
-                        {cleanupPreview.duplicateCandidateCount} duplicate /{" "}
-                        {cleanupPreview.ruleCandidateCount} rule
-                      </strong>
-                    </article>
-                  </div>
-
-                  {cleanupPreview.candidates.length === 0 ? (
-                    <p className="empty-state">
-                      No valid cleanup candidates remain after validation.
-                    </p>
-                  ) : (
-                    <div
-                      className="cleanup-candidates"
-                      role="list"
-                      aria-label="Cleanup candidates"
-                    >
-                      {cleanupPreview.candidates.map((candidate) => (
-                        <article
-                          className="cleanup-candidate"
-                          key={candidate.actionId}
-                          role="listitem"
-                        >
-                          <div className="cleanup-candidate-meta">
-                            <strong>{candidate.path}</strong>
-                            <span>{formatBytes(candidate.sizeBytes)}</span>
-                          </div>
-                          <div className="cleanup-source-tags">
-                            {candidate.sourceLabels.map((label) => (
-                              <span
-                                className="selection-pill is-delete"
-                                key={`${candidate.actionId}-${label}`}
-                              >
-                                {label}
-                              </span>
-                            ))}
-                          </div>
-                        </article>
-                      ))}
+                  <section
+                    className="cleanup-funnel-stage"
+                    role="region"
+                    aria-label="Cleanup preview review"
+                  >
+                    <div className="duplicate-summary-grid">
+                      <article className="summary-card">
+                        <span>Preview</span>
+                        <strong>{cleanupPreview.candidates.length} cleanup candidates</strong>
+                      </article>
+                      <article className="summary-card">
+                        <span>Reclaimable bytes</span>
+                        <strong>{formatBytes(cleanupPreview.totalBytes)}</strong>
+                      </article>
+                      <article className="summary-card">
+                        <span>Sources</span>
+                        <strong>
+                          {cleanupPreview.duplicateCandidateCount} duplicate /{" "}
+                          {cleanupPreview.ruleCandidateCount} rule
+                        </strong>
+                      </article>
                     </div>
-                  )}
+
+                    {cleanupPreview.candidates.length === 0 ? (
+                      <p className="empty-state">
+                        No valid cleanup candidates remain after validation.
+                      </p>
+                    ) : (
+                      <div
+                        className="cleanup-candidates"
+                        role="list"
+                        aria-label="Cleanup candidates"
+                      >
+                        {cleanupPreview.candidates.map((candidate) => (
+                          <article
+                            className="cleanup-candidate"
+                            key={candidate.actionId}
+                            role="listitem"
+                          >
+                            <div className="cleanup-candidate-meta">
+                              <strong>{candidate.path}</strong>
+                              <span>{formatBytes(candidate.sizeBytes)}</span>
+                            </div>
+                            <div className="cleanup-source-tags">
+                              {candidate.sourceLabels.map((label) => (
+                                <span
+                                  className="selection-pill is-delete"
+                                  key={`${candidate.actionId}-${label}`}
+                                >
+                                  {label}
+                                </span>
+                              ))}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </section>
 
                   {cleanupPreview.issues.length > 0 ? (
-                    <section className="duplicate-issues">
+                    <section
+                      className="duplicate-issues cleanup-funnel-stage"
+                      role="region"
+                      aria-label="Cleanup validation issues"
+                    >
                       <h4>Excluded cleanup paths</h4>
                       <ul>
                         {cleanupPreview.issues.map((issue) => (
@@ -2643,7 +2701,11 @@ function App({ client = unsupportedClient }: AppProps) {
                     </section>
                   ) : null}
 
-                  <div className="action-row cleanup-actions">
+                  <section
+                    className="action-row cleanup-actions cleanup-funnel-stage"
+                    role="region"
+                    aria-label="Recycle Bin cleanup action"
+                  >
                     <button
                       type="button"
                       className="primary-button"
@@ -2652,32 +2714,38 @@ function App({ client = unsupportedClient }: AppProps) {
                     >
                       Move selected files to Recycle Bin
                     </button>
-                  </div>
+                  </section>
 
-                  <label className="cleanup-rule-option advanced-toggle">
-                    <input
-                      type="checkbox"
-                      checked={permanentDeleteConfirmed}
-                      onChange={(event) => setPermanentDeleteConfirmed(event.target.checked)}
-                    />
-                    <span>
-                      <strong>I understand permanent delete cannot be undone</strong>
-                      <small>Use only when the Recycle Bin path is not appropriate.</small>
-                    </span>
-                  </label>
+                  <section
+                    className="cleanup-funnel-stage advanced-delete-stage"
+                    role="region"
+                    aria-label="Advanced permanent delete"
+                  >
+                    <label className="cleanup-rule-option advanced-toggle">
+                      <input
+                        type="checkbox"
+                        checked={permanentDeleteConfirmed}
+                        onChange={(event) => setPermanentDeleteConfirmed(event.target.checked)}
+                      />
+                      <span>
+                        <strong>I understand permanent delete cannot be undone</strong>
+                        <small>Use only when the Recycle Bin path is not appropriate.</small>
+                      </span>
+                    </label>
 
-                  {permanentDeleteConfirmed ? (
-                    <div className="action-row cleanup-actions">
-                      <button
-                        type="button"
-                        className="secondary-button danger-button"
-                        onClick={() => void handleExecuteCleanup("permanent")}
-                        disabled={cleanupPreview.candidates.length === 0}
-                      >
-                        Permanently delete selected files
-                      </button>
-                    </div>
-                  ) : null}
+                    {permanentDeleteConfirmed ? (
+                      <div className="action-row cleanup-actions">
+                        <button
+                          type="button"
+                          className="secondary-button danger-button"
+                          onClick={() => void handleExecuteCleanup("permanent")}
+                          disabled={cleanupPreview.candidates.length === 0}
+                        >
+                          Permanently delete selected files
+                        </button>
+                      </div>
+                    ) : null}
+                  </section>
                 </>
               ) : (
                 <p className="empty-state">
@@ -2739,7 +2807,7 @@ function App({ client = unsupportedClient }: AppProps) {
           </p>
         </div>
 
-        <section className="result-card">
+        <section className="result-card" role="region" aria-label="Safety guidance">
           <div className="panel-header compact-header">
             <h3>Safety model</h3>
             <p>Review-first cleanup stays local, explicit, and unprivileged by default.</p>

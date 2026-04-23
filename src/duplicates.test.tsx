@@ -540,6 +540,69 @@ describe("Space Sift duplicate workflow", () => {
     });
   }, uiTestTimeout);
 
+  it("duplicate_review_uses_grouped_cards_with_decision_context", async () => {
+    const mock = createDuplicateClient();
+    render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
+
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        { name: /analyze duplicates/i },
+        { timeout: uiReadyTimeout },
+      ),
+    );
+
+    await act(async () => {
+      mock.emitDuplicate({
+        analysisId: "analysis-1",
+        scanId: "scan-duplicates",
+        state: "completed",
+        stage: "completed",
+        itemsProcessed: 4,
+        groupsEmitted: 1,
+        message: "Duplicate analysis complete.",
+        completedAnalysisId: "analysis-1",
+      });
+    });
+
+    const duplicatesPanel = getDuplicatesPanel();
+    expect(
+      within(duplicatesPanel).getByRole("region", { name: /duplicate analysis controls/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(duplicatesPanel).getByRole("region", { name: /duplicate analysis status/i }),
+    ).toHaveTextContent(/idle|completed/i);
+
+    const summaryRegion = within(duplicatesPanel).getByRole("region", {
+      name: /duplicate delete summary/i,
+    });
+    expect(summaryRegion).toHaveTextContent(/1 files marked for later deletion/i);
+    expect(summaryRegion).toHaveTextContent(/32 bytes/i);
+
+    const reviewRegion = within(duplicatesPanel).getByRole("region", {
+      name: /verified duplicate review/i,
+    });
+    const group = await within(reviewRegion).findByTestId("duplicate-group-analysis-1-group-1");
+    expect(within(group).getByRole("button", { name: /show details/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    fireEvent.click(within(group).getByRole("button", { name: /show details/i }));
+
+    await waitFor(() => {
+      expect(within(group).getByText(/left\.bin/i)).toBeInTheDocument();
+      expect(within(group).getByText(/right\.bin/i)).toBeInTheDocument();
+      expect(
+        within(group).getByRole("button", { name: /kept copy for right\.bin/i }),
+      ).toBeInTheDocument();
+      expect(
+        within(group).getByRole("button", { name: /delete candidate for left\.bin/i }),
+      ).toBeInTheDocument();
+    });
+  }, uiTestTimeout);
+
   it("cancels a running duplicate analysis and returns to a clean review state", async () => {
     const mock = createDuplicateClient();
     render(<App client={mock.client} />);
