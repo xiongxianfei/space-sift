@@ -1069,4 +1069,62 @@ describe("Space Sift duplicate workflow", () => {
       expect(screen.getByText(/path no longer exists/i)).toBeInTheDocument();
     });
   }, uiTestTimeout);
+
+  it("shows a shell live-task notice without stealing focus from another workspace", async () => {
+    const mock = createDuplicateClient();
+    render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
+
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /analyze duplicates/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /analyze duplicates/i }));
+
+    await act(async () => {
+      mock.emitDuplicate({
+        analysisId: "analysis-1",
+        scanId: "scan-duplicates",
+        state: "running",
+        stage: "full_hash",
+        itemsProcessed: 3,
+        groupsEmitted: 0,
+        message: null,
+        completedAnalysisId: null,
+      });
+    });
+
+    await activateWorkspace("Explorer");
+
+    const explorerTab = screen.getByRole("tab", { name: "Explorer" });
+    explorerTab.focus();
+
+    await act(async () => {
+      mock.emitDuplicate({
+        analysisId: "analysis-1",
+        scanId: "scan-duplicates",
+        state: "running",
+        stage: "full_hash",
+        itemsProcessed: 4,
+        groupsEmitted: 0,
+        message: null,
+        completedAnalysisId: null,
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/duplicate analysis is running for the loaded scan\. review progress in duplicates\./i),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(explorerTab).toHaveFocus();
+    });
+  }, uiTestTimeout);
 });

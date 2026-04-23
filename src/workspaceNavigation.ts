@@ -48,6 +48,7 @@ type DeriveGlobalStatusInput = {
   browseableScan: boolean;
   cleanupPreview: CleanupPreview | null;
   cleanupExecutionResult: CleanupExecutionResult | null;
+  cleanupExecutionScanId: string | null;
   cleanupPreviewAvailable: boolean;
 };
 
@@ -190,6 +191,7 @@ export function deriveGlobalStatus({
   browseableScan,
   cleanupPreview,
   cleanupExecutionResult,
+  cleanupExecutionScanId,
   cleanupPreviewAvailable,
 }: DeriveGlobalStatusInput): GlobalStatusModel {
   if (scanStatus.state === "running") {
@@ -242,7 +244,11 @@ export function deriveGlobalStatus({
     };
   }
 
-  if (cleanupExecutionResult && currentScan) {
+  if (
+    cleanupExecutionResult &&
+    currentScan &&
+    cleanupExecutionScanId === currentScan.scanId
+  ) {
     return {
       primaryStateLabel: "Cleanup execution completed with rescan recommended",
       contextLabel: buildScanContext(currentScan),

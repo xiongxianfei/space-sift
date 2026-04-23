@@ -19,12 +19,16 @@ import { workspaceShellLogger } from "./workspaceShellLogger";
 
 const uiReadyTimeout = 5000;
 
-function makeHistoryEntry(scanId = "scan-shell"): ScanHistoryEntry {
+function makeHistoryEntry(
+  scanId = "scan-shell",
+  rootPath = "C:\\Users\\xiongxianfei\\Downloads",
+  totalBytes = 4096,
+): ScanHistoryEntry {
   return {
     scanId,
-    rootPath: "C:\\Users\\xiongxianfei\\Downloads",
+    rootPath,
     completedAt: "2026-04-22T10:00:00Z",
-    totalBytes: 4096,
+    totalBytes,
   };
 }
 
@@ -58,6 +62,35 @@ function makeBrowseableScan(scanId = "scan-shell"): CompletedScan {
         parentPath: "C:\\Users\\xiongxianfei\\Downloads",
         kind: "file",
         sizeBytes: 2048,
+      },
+    ],
+  };
+}
+
+function makeSecondBrowseableScan(scanId = "scan-shell-2"): CompletedScan {
+  return {
+    scanId,
+    rootPath: "C:\\Users\\xiongxianfei\\Videos",
+    startedAt: "2026-04-22T11:59:00Z",
+    completedAt: "2026-04-22T12:00:00Z",
+    totalBytes: 8192,
+    totalFiles: 2,
+    totalDirectories: 1,
+    largestFiles: [],
+    largestDirectories: [],
+    skippedPaths: [],
+    entries: [
+      {
+        path: "C:\\Users\\xiongxianfei\\Videos",
+        parentPath: null,
+        kind: "directory",
+        sizeBytes: 8192,
+      },
+      {
+        path: "C:\\Users\\xiongxianfei\\Videos\\movie.mkv",
+        parentPath: "C:\\Users\\xiongxianfei\\Videos",
+        kind: "file",
+        sizeBytes: 8192,
       },
     ],
   };
@@ -237,6 +270,7 @@ function makeCleanupExecutionResult(): CleanupExecutionResult {
 type WorkspaceClientOptions = {
   scanStatus?: ScanStatusSnapshot;
   scan?: CompletedScan | null;
+  scansById?: Record<string, CompletedScan>;
   duplicateAnalysis?: CompletedDuplicateAnalysis | null;
   history?: ScanHistoryEntry[];
   scanRuns?: ScanRunSummary[];
@@ -251,6 +285,13 @@ type WorkspaceClientOptions = {
 function createWorkspaceClient(options?: WorkspaceClientOptions) {
   const scanStatus = options?.scanStatus ?? idleScanStatus;
   const scan = options?.scan ?? null;
+  const scansById =
+    options?.scansById ??
+    (scan
+      ? {
+          [scan.scanId]: scan,
+        }
+      : {});
   const duplicateAnalysis = options?.duplicateAnalysis ?? null;
   const history =
     options?.history ??
@@ -286,11 +327,12 @@ function createWorkspaceClient(options?: WorkspaceClientOptions) {
     })),
     listScanHistory: vi.fn(async () => history),
     openScanHistory: vi.fn(async (scanId: string) => {
-      if (!scan || scan.scanId !== scanId) {
+      const storedScan = scansById[scanId];
+      if (!storedScan) {
         throw new Error(`missing stored scan ${scanId}`);
       }
 
-      return scan;
+      return storedScan;
     }),
     listScanRuns: vi.fn(async () => scanRuns),
     openScanRun: vi.fn(async () => {
@@ -736,6 +778,64 @@ describe("Space Sift workspace navigation shell", () => {
     });
   });
 
+  it("global_status_ignores_cleanup_state_for_different_loaded_scan", async () => {
+    const firstScan = makeBrowseableScan("scan-shell");
+    const secondScan = makeSecondBrowseableScan("scan-shell-2");
+    const client = createWorkspaceClient({
+      scanStatus: makeCompletedStatus(firstScan.scanId),
+      scan: firstScan,
+      scansById: {
+        [firstScan.scanId]: firstScan,
+        [secondScan.scanId]: secondScan,
+      },
+      history: [
+        makeHistoryEntry(firstScan.scanId, firstScan.rootPath, firstScan.totalBytes),
+        makeHistoryEntry(secondScan.scanId, secondScan.rootPath, secondScan.totalBytes),
+      ],
+      cleanupRules: makeCleanupRules(),
+    });
+
+    render(<App client={client} />);
+
+    await waitForWorkspaceShell();
+    await activateWorkspace("Cleanup");
+
+    fireEvent.click(screen.getByLabelText(/files in temp folders/i));
+    fireEvent.click(screen.getByRole("button", { name: /refresh cleanup preview/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /move selected files to recycle bin/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /move selected files to recycle bin/i }));
+
+    await waitFor(() => {
+      expect(getStatusRegion()).toHaveTextContent(
+        /cleanup execution completed with rescan recommended/i,
+      );
+      expect(screen.getByRole("button", { name: /start a fresh scan/i })).toBeInTheDocument();
+    });
+
+    await activateWorkspace("History");
+    fireEvent.click(screen.getByRole("button", { name: /reopen scan scan-shell-2/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(getStatusRegion()).toHaveTextContent(/completed scan loaded/i);
+      expect(screen.getByRole("button", { name: /find duplicates/i })).toBeInTheDocument();
+    });
+
+    expect(getStatusRegion()).not.toHaveTextContent(
+      /cleanup execution completed with rescan recommended/i,
+    );
+    expect(
+      screen.queryByRole("button", { name: /start a fresh scan/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("initial_workspace_prefers_running_scan", async () => {
     const client = createWorkspaceClient({
       scanStatus: makeRunningStatus(),
@@ -1122,6 +1222,100 @@ describe("Space Sift workspace navigation shell", () => {
       expect(explorerTab).toHaveFocus();
       expect(screen.getAllByText(/background scan failed\./i)).toHaveLength(2);
     });
+  });
+
+  it("interrupted_run_notice_visible_without_focus_steal", async () => {
+    render(
+      <App
+        client={createWorkspaceClient({
+          scanStatus: makeCompletedStatus(),
+          scan: makeBrowseableScan(),
+          scanRuns: [makeInterruptedRunSummary()],
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+    await activateWorkspace("Explorer");
+
+    const explorerTab = screen.getByRole("tab", { name: "Explorer" });
+    explorerTab.focus();
+
+    await waitFor(() => {
+      expect(screen.getByText(/interrupted runs need review in history\./i)).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(explorerTab).toHaveFocus();
+    });
+  });
+
+  it("active_live_task_notice_visible_from_non_overview_workspace", async () => {
+    render(
+      <App
+        client={createWorkspaceClient({
+          scanStatus: makeRunningStatus(),
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+    await activateWorkspace("Safety");
+
+    const safetyTab = screen.getByRole("tab", { name: "Safety" });
+    safetyTab.focus();
+
+    await waitFor(() => {
+      expect(screen.getByText(/a scan is running\. review progress in scan\./i)).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Safety" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(safetyTab).toHaveFocus();
+    });
+  });
+
+  it("shell_notices_and_next_safe_action_are_logged", async () => {
+    const logger = vi.spyOn(workspaceShellLogger, "log").mockImplementation(() => {});
+
+    render(
+      <App
+        client={createWorkspaceClient({
+          scanStatus: makeRunningStatus(),
+          scanRuns: [makeInterruptedRunSummary()],
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+
+    await waitFor(() => {
+      expect(logger).toHaveBeenCalledWith(
+        "workspace_next_safe_action_selected",
+        expect.objectContaining({
+          label: "View scan progress",
+          primaryStateLabel: "Live scan running",
+          target: "scan",
+        }),
+      );
+      expect(logger).toHaveBeenCalledWith(
+        "workspace_status_notice_rendered",
+        expect.objectContaining({
+          kind: "live_task",
+          noticeKey: "live-scan-running",
+        }),
+      );
+      expect(logger).toHaveBeenCalledWith(
+        "workspace_status_notice_rendered",
+        expect.objectContaining({
+          kind: "interrupted_runs",
+          noticeKey: "interrupted-runs-attention",
+        }),
+      );
+    });
+
+    logger.mockRestore();
   });
 
   it("replayed_terminal_event_does_not_reset_review_state", async () => {

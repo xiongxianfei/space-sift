@@ -49,12 +49,16 @@ function makeCompletedDuplicateStatus(
   };
 }
 
-function makeHistoryEntry(scanId: string): ScanHistoryEntry {
+function makeHistoryEntry(
+  scanId: string,
+  rootPath = "C:\\Users\\xiongxianfei\\Downloads",
+  totalBytes = 160,
+): ScanHistoryEntry {
   return {
     scanId,
-    rootPath: "C:\\Users\\xiongxianfei\\Downloads",
+    rootPath,
     completedAt: "2026-04-15T11:00:00Z",
-    totalBytes: 160,
+    totalBytes,
   };
 }
 
@@ -111,6 +115,35 @@ function makeSummaryOnlyScan(scanId: string): CompletedScan {
     largestFiles: [],
     largestDirectories: [],
     skippedPaths: [],
+  };
+}
+
+function makeSecondBrowseableScan(scanId: string): CompletedScan {
+  return {
+    scanId,
+    rootPath: "C:\\Users\\xiongxianfei\\Videos",
+    startedAt: "2026-04-15T11:59:00Z",
+    completedAt: "2026-04-15T12:00:00Z",
+    totalBytes: 320,
+    totalFiles: 3,
+    totalDirectories: 2,
+    largestFiles: [],
+    largestDirectories: [],
+    skippedPaths: [],
+    entries: [
+      {
+        path: "C:\\Users\\xiongxianfei\\Videos",
+        parentPath: null,
+        kind: "directory",
+        sizeBytes: 320,
+      },
+      {
+        path: "C:\\Users\\xiongxianfei\\Videos\\movie.mkv",
+        parentPath: "C:\\Users\\xiongxianfei\\Videos",
+        kind: "file",
+        sizeBytes: 320,
+      },
+    ],
   };
 }
 
@@ -388,5 +421,75 @@ describe("Space Sift cleanup workflow", () => {
     expect(
       screen.queryByRole("button", { name: /refresh cleanup preview/i }),
     ).not.toBeInTheDocument();
+  }, uiTestTimeout);
+
+  it("clears cleanup-specific shell status after a different stored scan is loaded", async () => {
+    const firstScan = makeBrowseableScan("scan-cleanup");
+    const secondScan = makeSecondBrowseableScan("scan-cleanup-2");
+    const client = createCleanupClient({ scan: firstScan });
+    const scansById: Record<string, CompletedScan> = {
+      [firstScan.scanId]: firstScan,
+      [secondScan.scanId]: secondScan,
+    };
+
+    client.listScanHistory = vi.fn(async () => [
+      makeHistoryEntry(firstScan.scanId),
+      makeHistoryEntry(secondScan.scanId, secondScan.rootPath, secondScan.totalBytes),
+    ]);
+    client.openScanHistory = vi.fn(async (scanId: string) => {
+      const storedScan = scansById[scanId];
+      if (!storedScan) {
+        throw new Error(`missing stored scan ${scanId}`);
+      }
+
+      return storedScan;
+    });
+
+    render(<App client={client} />);
+    await activateWorkspace("Cleanup");
+
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /refresh cleanup preview/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /refresh cleanup preview/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /move selected files to recycle bin/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /move selected files to recycle bin/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /start a fresh scan/i })).toBeInTheDocument();
+    });
+
+    await activateWorkspace("History");
+    fireEvent.click(screen.getByRole("button", { name: /reopen scan scan-cleanup-2/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+
+    await activateWorkspace("Cleanup");
+
+    await waitFor(() => {
+      const cleanupPanel = getCleanupPanel();
+      expect(
+        within(cleanupPanel).queryByRole("heading", { name: /cleanup completed/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(cleanupPanel).getByText(/enable one or more cleanup sources, then refresh the preview/i),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: /start a fresh scan/i })).not.toBeInTheDocument();
   }, uiTestTimeout);
 });

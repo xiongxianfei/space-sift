@@ -79,6 +79,16 @@ type OpenStoredScanOptions = {
   persistRestoreContext?: boolean;
 };
 type WorkspaceSwitchPhase = "default" | "accepted" | "running";
+type CleanupExecutionState = {
+  scanId: string;
+  result: CleanupExecutionResult;
+};
+type ShellNoticeKind = "status" | "live_task" | "interrupted_runs";
+type ShellNoticeEntry = {
+  key: string;
+  kind: ShellNoticeKind;
+  message: string;
+};
 
 function formatBytes(bytes: number) {
   return `${bytes} bytes`;
@@ -442,8 +452,8 @@ function App({ client = unsupportedClient }: AppProps) {
   const [cleanupRules, setCleanupRules] = useState<CleanupRuleDefinition[]>([]);
   const [selectedCleanupRuleIds, setSelectedCleanupRuleIds] = useState<string[]>([]);
   const [cleanupPreview, setCleanupPreview] = useState<CleanupPreview | null>(null);
-  const [cleanupExecutionResult, setCleanupExecutionResult] =
-    useState<CleanupExecutionResult | null>(null);
+  const [cleanupExecutionState, setCleanupExecutionState] =
+    useState<CleanupExecutionState | null>(null);
   const [privilegedCapability, setPrivilegedCapability] =
     useState<PrivilegedCleanupCapability | null>(null);
   const [permanentDeleteConfirmed, setPermanentDeleteConfirmed] = useState(false);
@@ -459,6 +469,8 @@ function App({ client = unsupportedClient }: AppProps) {
   const pendingDuplicateStartRef = useRef<{ scanId: string } | null>(null);
   const startupResolutionPendingRef = useRef(true);
   const manualWorkspaceDuringStartupRef = useRef<WorkspaceTab | null>(null);
+  const visibleShellNoticeKeysRef = useRef<Set<string>>(new Set());
+  const lastNextSafeActionKeyRef = useRef<string | null>(null);
   const workspaceTabRefs = useRef<Record<WorkspaceTab, HTMLButtonElement | null>>({
     overview: null,
     scan: null,
@@ -473,7 +485,7 @@ function App({ client = unsupportedClient }: AppProps) {
     startTransition(() => {
       setSelectedCleanupRuleIds([]);
       setCleanupPreview(null);
-      setCleanupExecutionResult(null);
+      setCleanupExecutionState(null);
       setPermanentDeleteConfirmed(false);
     });
   });
@@ -486,7 +498,7 @@ function App({ client = unsupportedClient }: AppProps) {
       setExpandedDuplicateGroups({});
       setSelectedCleanupRuleIds([]);
       setCleanupPreview(null);
-      setCleanupExecutionResult(null);
+      setCleanupExecutionState(null);
       setPermanentDeleteConfirmed(false);
     });
   });
@@ -661,7 +673,7 @@ function App({ client = unsupportedClient }: AppProps) {
           completedAnalysisId: result.analysisId,
         }));
         setCleanupPreview(null);
-        setCleanupExecutionResult(null);
+        setCleanupExecutionState(null);
         setPermanentDeleteConfirmed(false);
         setErrorMessage(null);
       });
@@ -693,7 +705,7 @@ function App({ client = unsupportedClient }: AppProps) {
         setExpandedDuplicateGroups({});
         setSelectedCleanupRuleIds([]);
         setCleanupPreview(null);
-        setCleanupExecutionResult(null);
+        setCleanupExecutionState(null);
         setPermanentDeleteConfirmed(false);
       });
 
@@ -1236,7 +1248,7 @@ function App({ client = unsupportedClient }: AppProps) {
       [group.groupId]: path,
     }));
     setCleanupPreview(null);
-    setCleanupExecutionResult(null);
+    setCleanupExecutionState(null);
     setPermanentDeleteConfirmed(false);
   }
 
@@ -1254,7 +1266,7 @@ function App({ client = unsupportedClient }: AppProps) {
         : [...currentValue, ruleId],
     );
     setCleanupPreview(null);
-    setCleanupExecutionResult(null);
+    setCleanupExecutionState(null);
     setPermanentDeleteConfirmed(false);
   }
 
@@ -1286,7 +1298,7 @@ function App({ client = unsupportedClient }: AppProps) {
       });
       startTransition(() => {
         setCleanupPreview(preview);
-        setCleanupExecutionResult(null);
+        setCleanupExecutionState(null);
         setPermanentDeleteConfirmed(false);
         setNotice(
           preview.candidates.length === 0
@@ -1320,7 +1332,10 @@ function App({ client = unsupportedClient }: AppProps) {
         mode,
       });
       startTransition(() => {
-        setCleanupExecutionResult(result);
+        setCleanupExecutionState({
+          scanId: cleanupPreview.scanId,
+          result,
+        });
         setNotice("Cleanup execution finished.");
         setErrorMessage(null);
       });
@@ -1355,6 +1370,7 @@ function App({ client = unsupportedClient }: AppProps) {
   const duplicatePreview = duplicateAnalysis
     ? summarizeDuplicatePreview(duplicateAnalysis, duplicateKeepSelections)
     : { filesMarkedForDeletion: 0, reclaimableBytes: 0 };
+  const cleanupExecutionResult = cleanupExecutionState?.result ?? null;
   const orderedDuplicateGroups = duplicateAnalysis
     ? sortDuplicateGroups(duplicateAnalysis.groups)
     : [];
@@ -1399,17 +1415,101 @@ function App({ client = unsupportedClient }: AppProps) {
     browseableScan: Boolean(browseableScan),
     cleanupPreview,
     cleanupExecutionResult,
+    cleanupExecutionScanId: cleanupExecutionState?.scanId ?? null,
     cleanupPreviewAvailable,
   });
   const activeWorkspaceDefinition =
     workspaceDefinitions.find((definition) => definition.value === activeWorkspace) ??
     workspaceDefinitions[0]!;
   const nextSafeAction = globalStatus.nextSafeAction;
+  const nextSafeActionTarget = nextSafeAction?.target ?? null;
+  const nextSafeActionText = nextSafeAction?.label ?? null;
   const nextSafeActionLabel =
-    nextSafeAction?.label ??
+    nextSafeActionText ??
     globalStatus.noActionLabel ??
     "No safe next action right now.";
-  const shellNotices = [...new Set([scanStatus.message, notice, shellNotice].filter(Boolean))];
+  const activeLiveTaskNotice =
+    scanStatus.state === "running"
+      ? "A scan is running. Review progress in Scan."
+      : duplicateStatus.state === "running" &&
+          currentScan &&
+          duplicateStatus.scanId === currentScan.scanId
+        ? "Duplicate analysis is running for the loaded scan. Review progress in Duplicates."
+        : null;
+  const shellNoticeEntries = [
+    ...(activeLiveTaskNotice
+      ? [
+          {
+            key:
+              scanStatus.state === "running"
+                ? "live-scan-running"
+                : `live-duplicate-running:${duplicateStatus.analysisId ?? duplicateStatus.scanId ?? "unknown"}`,
+            kind: "live_task" as const,
+            message: activeLiveTaskNotice,
+          },
+        ]
+      : []),
+    ...(interruptedRuns.length > 0
+      ? [
+          {
+            key: "interrupted-runs-attention",
+            kind: "interrupted_runs" as const,
+            message: "Interrupted runs need review in History.",
+          },
+        ]
+      : []),
+    ...([scanStatus.message, notice, shellNotice]
+      .filter((value): value is string => Boolean(value))
+      .map((message, index) => ({
+        key: `status-${index}:${message}`,
+        kind: "status" as const,
+        message,
+      })) as ShellNoticeEntry[]),
+  ];
+  const shellNotices = Array.from(
+    new Map(shellNoticeEntries.map((entry) => [entry.key, entry])),
+  ).map(([, entry]) => entry);
+
+  useEffect(() => {
+    const nextActionKey = nextSafeActionText
+      ? `${nextSafeActionText}:${nextSafeActionTarget}:${globalStatus.primaryStateLabel}`
+      : `no-action:${globalStatus.noActionLabel ?? "none"}:${globalStatus.primaryStateLabel}`;
+    if (lastNextSafeActionKeyRef.current === nextActionKey) {
+      return;
+    }
+
+    lastNextSafeActionKeyRef.current = nextActionKey;
+    workspaceShellLogger.log("workspace_next_safe_action_selected", {
+      label: nextSafeActionText,
+      noActionLabel: nextSafeActionText ? null : globalStatus.noActionLabel,
+      primaryStateLabel: globalStatus.primaryStateLabel,
+      target: nextSafeActionTarget,
+    });
+  }, [
+    globalStatus.noActionLabel,
+    globalStatus.primaryStateLabel,
+    nextSafeActionTarget,
+    nextSafeActionText,
+  ]);
+
+  useEffect(() => {
+    const previousKeys = visibleShellNoticeKeysRef.current;
+    const nextKeys = new Set(shellNotices.map((entry) => entry.key));
+
+    for (const entry of shellNotices) {
+      if (previousKeys.has(entry.key)) {
+        continue;
+      }
+
+      workspaceShellLogger.log("workspace_status_notice_rendered", {
+        kind: entry.kind,
+        message: entry.message,
+        noticeKey: entry.key,
+      });
+    }
+
+    visibleShellNoticeKeysRef.current = nextKeys;
+  }, [shellNotices]);
 
   function handleGlobalStatusAction() {
     if (!nextSafeAction) {
@@ -2654,9 +2754,9 @@ function App({ client = unsupportedClient }: AppProps) {
         </div>
       </section>
 
-      {shellNotices.map((message) => (
-        <p className="notice-banner shell-banner" key={message}>
-          {message}
+      {shellNotices.map((entry) => (
+        <p className="notice-banner shell-banner" key={entry.key}>
+          {entry.message}
         </p>
       ))}
       {errorMessage ? <p className="error-banner shell-banner">{errorMessage}</p> : null}

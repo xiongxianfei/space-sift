@@ -301,7 +301,7 @@ them.
 - [x] M1 complete
 - [x] M2 complete
 - [x] M3 complete
-- [ ] M4 complete
+- [x] M4 complete
 - [ ] Branch-wide verification complete
 
 ## Decision log
@@ -320,6 +320,9 @@ them.
 - 2026-04-23: `M3` preserves durable completed duplicate-analysis hydration for the currently loaded scan during startup, but it still does not cold-start the `Duplicates` workspace from prior review state alone.
 - 2026-04-23: Manual workspace activation during startup wins over the late startup resolver so a user click is not overwritten by async restore-context validation.
 - 2026-04-23: `N1_START_SCAN` now tracks accepted-start and running-snapshot phases separately so a later matching running snapshot can restore `Scan` once, while a stale accepted response cannot override a fresher running event.
+- 2026-04-23: `M4` pairs cleanup execution shell status with the originating scan id and ignores that state after a different stored scan becomes current, so cleanup-derived rescan prompts cannot leak across scan reopen boundaries.
+- 2026-04-23: `M4` keeps interrupted-run attention and active live-task notices visible from any workspace without stealing focus or changing the selected workspace.
+- 2026-04-23: `M4` logs next-safe-action selection and first render of each shell notice key so shell-level status changes remain locally observable without widening backend contracts.
 
 ## Surprises and discoveries
 
@@ -330,6 +333,8 @@ them.
 - `M2` split the UI into real workspaces, so the existing workflow suites had to activate `Scan`, `History`, `Explorer`, `Duplicates`, or `Cleanup` explicitly instead of assuming a stacked single-page render.
 - The new shell-level global status copies some workflow summary text, so existing duplicate and cleanup assertions needed panel-scoped queries to avoid matching the shell summary instead of the feature panel.
 - The first `M3` broad test run exposed that startup still needs to hydrate a durably persisted completed duplicate-analysis result for the currently loaded scan. Without that hydration, cleanup preview lost duplicate delete candidates even though `Duplicates` still must not cold-start as the active workspace.
+- Cross-workflow cleanup hardening needed multi-scan history fixtures in both cleanup and shell tests; single-scan test doubles could not prove that cleanup-derived shell state clears after reopening a different stored scan.
+- Shell observability is more reliable when notice logging keys are stable and semantic. Logging by raw banner text alone would not distinguish repeated live-task renders from genuinely new shell notices.
 
 ## Validation notes
 
@@ -382,6 +387,19 @@ them.
     - passed: `7 files, 66 tests`
   - `npm run build`
     - passed
+- `npm run test -- src/workspace-navigation.test.tsx`
+  - passed: `33 passed; 0 failed`
+- `npm run test -- src/cleanup.test.tsx`
+  - passed: `5 passed; 0 failed`
+- `npm run test -- src/duplicates.test.tsx`
+  - passed: `11 passed; 0 failed`
+- `npm run lint`
+  - passed
+- `npm run test`
+  - passed: `7 files, 72 tests`
+- `npm run build`
+  - passed
+- not applicable for `M4`: `cargo test --manifest-path src-tauri/Cargo.toml -p app-db workspace_restore_context` and `cargo check --manifest-path src-tauri/Cargo.toml` because this milestone stayed in `src/` and did not change `src-tauri/`
 
 ## Outcome and retrospective
 
@@ -393,9 +411,11 @@ them.
 - `M3` is complete. The shell now resolves startup from the approved live-work, interrupted-run, and validated Explorer-restore rules; applies the contractual `N1` through `N4` auto-switches plus shell-action backed `N5` and `N6`; persists restore context only at the approved write points; and deduplicates replayed terminal snapshots by operation-aware navigation keys.
 - `M3` also adds restore-context failure notices and local shell log events, while preserving the existing duplicate, cleanup, and history contracts instead of reopening backend scope.
 - This slice extends the active scan and history-review contracts by making the approved workspace navigation transitions automatic, but it does not supersede the underlying scan, duplicate-analysis, cleanup, or continuity contracts those plans already govern.
+- `M4` is complete. The shell now keeps cleanup-completion status scan-scoped, keeps interrupted-run and live-task notices visible from any workspace without focus steal, and logs next-safe-action selection plus notice rendering for local observability.
+- `M4` hardens shell behavior only. It does not add new backend persistence, change cleanup execution rules, or supersede the underlying duplicate-analysis, cleanup, or continuity contracts that the coordinated active plans still govern.
 
 ## Readiness
 
-This plan is `active`. `M1`, `M2`, and `M3` are complete, and the current
-milestone slice is ready for `code-review`. `M4` remains the next
-implementation milestone.
+This plan is `active`. `M1` through `M4` are complete, and the implemented
+milestone slices are ready for `code-review`. Branch-wide verification remains
+next; do not claim branch readiness until `bash scripts/ci.sh` passes.
