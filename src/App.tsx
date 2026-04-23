@@ -2728,7 +2728,6 @@ function App({ client = unsupportedClient }: AppProps) {
         </div>
 
         <div className="utility" aria-label="Application safety status">
-          <span className="status-pill">Desktop bridge connected</span>
           <span className="status-pill">Recycle Bin first</span>
           <span className="status-pill">Local SQLite history</span>
         </div>

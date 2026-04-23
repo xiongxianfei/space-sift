@@ -24,8 +24,9 @@ Cleanup, and Safety remains in later milestones.
 | File | Change | Reason |
 | --- | --- | --- |
 | `src/App.tsx` | Replaced the hero/workspace-card shell with a topbar, workspace navigation rail, active content region, and vertical tab orientation. Added ArrowUp/ArrowDown tab focus movement. | Match the prototype shell structure while preserving the approved workspace-navigation behavior and accessibility contract. |
+| `src/App.tsx` | Removed the prototype-only `Desktop bridge connected` pill from the topbar. | Avoid displaying a connection state before bridge capability is modeled as truthful product state. |
 | `src/App.css` | Added topbar, left rail, workspace layout, active workspace region, and responsive rules at `1050px` and `640px`. | Establish the desktop-first responsive foundation required before panel-specific fidelity work. |
-| `src/workspace-navigation.test.tsx` | Added tests for persistent header, left rail, active content containment, and breakpoint stylesheet contract. | Prove the M1 shell structure and responsive baseline are intentional. |
+| `src/workspace-navigation.test.tsx` | Added tests for persistent header, left rail, active content containment, prototype-only bridge-copy absence, breakpoint stylesheet contract, and required DOM availability at `1280`, `900`, and `560` CSS-pixel widths. | Prove the M1 shell structure, truthful default utility copy, and responsive DOM baseline are intentional. |
 | `specs/space-sift-ui-design-fidelity.test.md` | Moved the test spec to `active` after the explicit `$implement` request. | The test spec allowed implementation after explicit activation. |
 | `docs/plan.md`, `docs/plans/2026-04-24-space-sift-ui-design-fidelity.md` | Moved the initiative to active, recorded M1 completion, validation results, and unaffected surfaces. | Keep the active plan aligned with implementation progress. |
 
@@ -36,6 +37,15 @@ Cleanup, and Safety remains in later milestones.
 - `npm run test`: passed.
 - `npm run build`: passed.
 - `git diff --check -- src\App.tsx src\App.css src\workspace-navigation.test.tsx`: passed with CRLF conversion warnings only.
+
+## Review resolution
+
+- Removed the unconditional `Desktop bridge connected` pill because bridge
+  connection state is not yet a modeled shell capability.
+- Added a targeted responsive DOM availability test at `1280`, `900`, and
+  `560` CSS-pixel app-window widths for all workspace tabs, global status, the
+  shell next safe action, cleanup guardrail/action content, selected state, and
+  one active tabpanel.
 
 ## Follow-ups
 

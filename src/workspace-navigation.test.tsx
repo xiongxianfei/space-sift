@@ -429,6 +429,14 @@ function getStatusRegion() {
   return screen.getByRole("region", { name: /global status/i });
 }
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 async function activateWorkspace(label: string) {
   fireEvent.click(screen.getByRole("tab", { name: label }));
   await waitFor(() => {
@@ -555,6 +563,7 @@ describe("Space Sift workspace navigation shell", () => {
 
     const banner = screen.getByRole("banner");
     expect(within(banner).getByRole("heading", { name: "Space Sift" })).toBeInTheDocument();
+    expect(within(banner).queryByText(/desktop bridge connected/i)).not.toBeInTheDocument();
     expect(within(banner).getByText(/recycle bin first/i)).toBeInTheDocument();
     expect(within(banner).getByText(/local sqlite history/i)).toBeInTheDocument();
 
@@ -591,6 +600,57 @@ describe("Space Sift workspace navigation shell", () => {
     expect(appCss).toMatch(/@media\s*\(\s*max-width:\s*1050px\s*\)/);
     expect(appCss).toMatch(/@media\s*\(\s*max-width:\s*640px\s*\)/);
     expect(appCss).toMatch(/grid-template-columns:\s*260px\s+minmax\(0,\s*1fr\)/);
+  });
+
+  it("workspace_shell_keeps_required_content_available_at_contract_widths", async () => {
+    const originalWidth = window.innerWidth;
+    const client = createWorkspaceClient({
+      scanStatus: makeCompletedStatus(),
+      scan: makeBrowseableScan(),
+      cleanupRules: makeCleanupRules(),
+    });
+
+    render(<App client={client} />);
+
+    await waitForWorkspaceShell();
+
+    for (const width of [1280, 900, 560]) {
+      setViewportWidth(width);
+
+      for (const label of [
+        "Overview",
+        "Scan",
+        "History",
+        "Explorer",
+        "Duplicates",
+        "Cleanup",
+        "Safety",
+      ]) {
+        expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+      }
+
+      expect(getStatusRegion()).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /find duplicates|start a scan/i })).toBeInTheDocument();
+
+      await activateWorkspace("Cleanup");
+      expect(screen.getByRole("button", { name: /refresh cleanup preview/i })).toBeInTheDocument();
+      expect(screen.getByText(/built-in cleanup rules/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/recycle bin/i).length).toBeGreaterThan(0);
+
+      await activateWorkspace("Overview");
+      expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    }
+
+    setViewportWidth(originalWidth);
+
+    expect(client.startScan).not.toHaveBeenCalled();
+    expect(client.previewCleanup).not.toHaveBeenCalled();
+    expect(client.executeCleanup).not.toHaveBeenCalled();
+    expect(client.resumeScanRun).not.toHaveBeenCalled();
   });
 
   it("global_status_visible_on_all_workspaces", async () => {

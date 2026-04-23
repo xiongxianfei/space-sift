@@ -318,6 +318,15 @@ release automation.
   - Reason: Vitest under jsdom did not expose `import.meta.url` as a `file:`
     URL for that assertion, while the test only needed to inspect the tracked
     stylesheet source.
+- 2026-04-24: Removed the prototype-only `Desktop bridge connected` topbar
+  pill.
+  - Reason: bridge capability is not modeled as truthful UI state yet, so the
+    shell keeps only stable safety/locality utility copy by default.
+- 2026-04-24: Added direct M1 DOM availability proof at `1280`, `900`, and
+  `560` CSS pixels.
+  - Reason: the first code-review pass found that M1 had breakpoint CSS proof
+    but lacked direct `T12` proof for required shell content across the
+    accepted large, medium, and small app-window widths.
 
 ## Surprises and discoveries
 
@@ -326,6 +335,10 @@ release automation.
 - The first rerun of `npm run test -- src/workspace-navigation.test.tsx`
   exposed a test-only file URL assumption in the new stylesheet assertion. The
   production shell implementation did not need changes for that failure.
+- The first code-review pass found two M1 issues: an unconditional prototype
+  bridge-status pill that could misrepresent the unsupported bridge state, and
+  missing direct `T12` responsive DOM proof. Both were fixed in the M1
+  review-resolution commit.
 
 ## Aligned-surface audit
 
@@ -356,6 +369,16 @@ release automation.
 - 2026-04-24: `npm run test`
   - passed
   - result: 7 test files passed, 74 tests passed
+- 2026-04-24: M1 code review
+  - result: changes requested
+  - findings: remove untruthful `Desktop bridge connected` prototype copy; add
+    direct responsive DOM availability proof at `1280`, `900`, and `560`
+- 2026-04-24: `npm run test -- src/workspace-navigation.test.tsx`
+  - passed after review-resolution
+  - result: 36 tests passed
+- 2026-04-24: `npm run test`
+  - passed after review-resolution
+  - result: 7 test files passed, 75 tests passed
 - 2026-04-24: `git diff --check -- src\App.tsx src\App.css src\workspace-navigation.test.tsx`
   - passed
   - output contained CRLF conversion warnings only
@@ -370,8 +393,8 @@ release automation.
 
 ## Readiness
 
-This plan is active. M1 is ready for code review after the milestone closeout
-commit.
+This plan is active. M1 review-resolution is implemented and ready for another
+code-review pass.
 
 M2, M3, and M4 remain unstarted. Branch-wide readiness is blocked until the
 remaining milestones are implemented and final visual verification is recorded.
