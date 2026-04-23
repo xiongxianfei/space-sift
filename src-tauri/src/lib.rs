@@ -41,7 +41,9 @@ pub fn run() {
             commands::history::list_scan_runs,
             commands::history::open_scan_run,
             commands::privileged::get_privileged_cleanup_capability,
-            commands::shell::open_path_in_explorer
+            commands::shell::get_workspace_restore_context,
+            commands::shell::open_path_in_explorer,
+            commands::shell::save_workspace_restore_context
         ])
         .run(tauri::generate_context!())
         .expect("error while running Space Sift");

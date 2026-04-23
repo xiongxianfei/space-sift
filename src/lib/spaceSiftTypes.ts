@@ -118,6 +118,27 @@ export type CleanupExecutionResult = {
   entries: CleanupExecutionEntry[];
 };
 
+export type WorkspaceRestoreWorkspace =
+  | "overview"
+  | "scan"
+  | "history"
+  | "explorer"
+  | "duplicates"
+  | "cleanup"
+  | "safety";
+
+export type WorkspaceRestoreContext = {
+  schemaVersion: number;
+  lastWorkspace: WorkspaceRestoreWorkspace;
+  lastOpenedScanId: string | null;
+  updatedAt: string;
+};
+
+export type WorkspaceRestoreContextInput = {
+  lastWorkspace: WorkspaceRestoreWorkspace;
+  lastOpenedScanId: string | null;
+};
+
 export type PrivilegedCleanupCapability = {
   available: boolean;
   message: string;

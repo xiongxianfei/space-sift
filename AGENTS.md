@@ -88,10 +88,10 @@ Current repository verification commands from the repo root:
 - `npm run build`
 - `cargo check --manifest-path src-tauri/Cargo.toml`
 - `npm run tauri dev`
-- `bash scripts/ci.sh`
+- `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1`
 - `bash scripts/release-verify.sh`
 
-`bash scripts/ci.sh` is the canonical CI-parity command when branch-wide readiness matters.
+`powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1` is the canonical CI-parity command when branch-wide readiness matters.
 
 If Rust or other Tauri prerequisites are missing on the local machine, state
 that explicitly instead of claiming the desktop validation passed.

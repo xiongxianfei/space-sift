@@ -1,0 +1,13 @@
+change_id: 2026-04-23-workspace-navigation-ui-m4-status-hardening
+title: Workspace navigation M4 global status hardening and observability
+status: implemented
+implemented_on: 2026-04-23
+plan: docs/plans/2026-04-22-space-sift-workspace-navigation-ui.md
+milestone: M4
+feature_spec: specs/space-sift-workspace-navigation.md
+test_spec: specs/space-sift-workspace-navigation.test.md
+architecture: docs/architecture/2026-04-22-workspace-navigation-ui.md
+summary:
+  - Keep cleanup-derived shell status tied to the originating scan so reopening a different stored scan clears stale rescan prompts.
+  - Keep interrupted-run attention and active live-task notices visible from any workspace without stealing focus.
+  - Add shell-level observability for next-safe-action selection and notice rendering while preserving the non-destructive navigation contract.

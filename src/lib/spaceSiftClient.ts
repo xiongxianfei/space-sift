@@ -12,6 +12,8 @@ import type {
   ScanRunSummary,
   ScanStatusSnapshot,
   StartScanOptions,
+  WorkspaceRestoreContext,
+  WorkspaceRestoreContextInput,
 } from "./spaceSiftTypes";
 
 export type Unsubscribe = () => void;
@@ -21,6 +23,10 @@ export type SpaceSiftClient = {
   cancelActiveScan(): Promise<void>;
   cancelScanRun(runId: string): Promise<void>;
   getScanStatus(): Promise<ScanStatusSnapshot>;
+  getWorkspaceRestoreContext(): Promise<WorkspaceRestoreContext | null>;
+  saveWorkspaceRestoreContext(
+    input: WorkspaceRestoreContextInput,
+  ): Promise<WorkspaceRestoreContext>;
   listScanHistory(): Promise<ScanHistoryEntry[]>;
   openScanHistory(scanId: string): Promise<CompletedScan>;
   listScanRuns(): Promise<ScanRunSummary[]>;
@@ -88,6 +94,12 @@ export const unsupportedClient: SpaceSiftClient = {
   },
   async getScanStatus() {
     return idleScanStatus;
+  },
+  async getWorkspaceRestoreContext() {
+    return null;
+  },
+  async saveWorkspaceRestoreContext() {
+    throw new Error("The Space Sift desktop bridge is not connected yet.");
   },
   async listScanHistory() {
     return [];

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import App from "./App";
 import {
@@ -28,6 +28,17 @@ function createIdleClient(): SpaceSiftClient {
         currentPath: null,
         message: null,
         completedScanId: null,
+      };
+    },
+    async getWorkspaceRestoreContext() {
+      return null;
+    },
+    async saveWorkspaceRestoreContext({ lastWorkspace, lastOpenedScanId }) {
+      return {
+        schemaVersion: 1,
+        lastWorkspace,
+        lastOpenedScanId,
+        updatedAt: "2026-04-22T10:00:00Z",
       };
     },
     async listScanHistory() {
@@ -83,6 +94,18 @@ function createIdleClient(): SpaceSiftClient {
   };
 }
 
+async function activateWorkspace(label: string) {
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("tab", { name: label }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toHaveAttribute("aria-selected", "true");
+  });
+}
+
 describe("Space Sift milestone 2 shell", () => {
   it("shows the branded product and scan workspace", async () => {
     render(<App client={createIdleClient()} />);
@@ -91,8 +114,11 @@ describe("Space Sift milestone 2 shell", () => {
       expect(screen.getByRole("heading", { name: /space sift/i })).toBeInTheDocument();
     });
 
+    await activateWorkspace("Scan");
     expect(screen.getByRole("heading", { name: /scan workspace/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/scan root/i)).toBeInTheDocument();
+
+    await activateWorkspace("History");
     expect(screen.getByRole("heading", { name: /recent scans/i })).toBeInTheDocument();
   });
 
@@ -109,9 +135,7 @@ describe("Space Sift milestone 2 shell", () => {
   it("keeps interrupted-run resume behind an advanced opt-in", async () => {
     render(<App client={createIdleClient()} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /scan workspace/i })).toBeInTheDocument();
-    });
+    await activateWorkspace("Scan");
 
     expect(screen.getByText(/advanced scan options/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/enable interrupted-run resume/i)).not.toBeChecked();

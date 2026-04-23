@@ -179,6 +179,13 @@ function createExplorerClient(scan: BrowseableScanFixture, scanId = scan.scanId)
     cancelActiveScan: vi.fn(async () => {}),
     cancelScanRun: vi.fn(async () => {}),
     getScanStatus: vi.fn(async () => makeCompletedStatus(scanId)),
+    getWorkspaceRestoreContext: vi.fn(async () => null),
+    saveWorkspaceRestoreContext: vi.fn(async ({ lastWorkspace, lastOpenedScanId }) => ({
+      schemaVersion: 1,
+      lastWorkspace,
+      lastOpenedScanId,
+      updatedAt: "2026-04-22T10:00:00Z",
+    })),
     listScanHistory: vi.fn(async () => [historyEntry]),
     openScanHistory: vi.fn(async () => scan),
     listScanRuns: vi.fn(async () => []),
@@ -212,9 +219,22 @@ function createExplorerClient(scan: BrowseableScanFixture, scanId = scan.scanId)
   return client;
 }
 
+async function activateWorkspace(label: string) {
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("tab", { name: label }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toHaveAttribute("aria-selected", "true");
+  });
+}
+
 describe("Space Sift results explorer", () => {
   it("renders the root explorer, drills into directories, and navigates by breadcrumb", async () => {
     render(<App client={createExplorerClient(makeBrowseableScan("scan-explorer"))} />);
+    await activateWorkspace("Explorer");
 
     expect(
       await screen.findByRole(
@@ -245,6 +265,7 @@ describe("Space Sift results explorer", () => {
 
   it("sorts the current directory and shows inline usage in the same table", async () => {
     render(<App client={createExplorerClient(makeBrowseableScan("scan-sort"))} />);
+    await activateWorkspace("Explorer");
 
     const contentsTable = await screen.findByRole("table", {
       name: /current folder contents/i,
@@ -266,6 +287,7 @@ describe("Space Sift results explorer", () => {
 
   it("shows an empty-state when the current folder has no immediate children", async () => {
     render(<App client={createExplorerClient(makeBrowseableScan("scan-empty"))} />);
+    await activateWorkspace("Explorer");
 
     expect(
       await screen.findByRole(
@@ -297,6 +319,7 @@ describe("Space Sift results explorer", () => {
   it("requests Explorer handoff for the current path and surfaces missing-path errors", async () => {
     const client = createExplorerClient(makeBrowseableScan("scan-shell"));
     render(<App client={client} />);
+    await activateWorkspace("Explorer");
 
     expect(
       await screen.findByRole(
@@ -328,6 +351,7 @@ describe("Space Sift results explorer", () => {
 
   it("keeps older summary-only scans readable and asks for a rescan to browse", async () => {
     render(<App client={createExplorerClient(makeSummaryOnlyScan("scan-legacy"))} />);
+    await activateWorkspace("Explorer");
 
     expect(
       await screen.findByText(/legacy\.iso/i, undefined, { timeout: uiReadyTimeout }),

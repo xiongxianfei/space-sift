@@ -3,7 +3,7 @@
 This file tracks active, blocked, done, and superseded plans.
 
 ## Draft
-- none yet
+- none currently
 
 ## Active
 - [2026-04-16-history-and-duplicate-review-clarity.md](plans/2026-04-16-history-and-duplicate-review-clarity.md)
@@ -25,6 +25,9 @@ This file tracks active, blocked, done, and superseded plans.
 - none currently
 
 ## Done
+- [2026-04-22-space-sift-workspace-navigation-ui.md](plans/2026-04-22-space-sift-workspace-navigation-ui.md)
+  - status: done
+  - scope: introduced the workspace shell, startup restoration, contractual auto-switches, and shell-level global status for the advanced UI initiative without silently replacing active UI contracts
 - [2026-04-18-scan-run-continuity.md](plans/2026-04-18-scan-run-continuity.md)
   - status: done
   - scope: added additive SQLite-backed scan run continuity, restart recovery,

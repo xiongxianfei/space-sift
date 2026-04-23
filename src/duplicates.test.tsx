@@ -405,6 +405,13 @@ function createDuplicateClient(options?: {
     cancelActiveScan: vi.fn(async () => {}),
     cancelScanRun: vi.fn(async () => {}),
     getScanStatus: vi.fn(async () => initialScanStatus),
+    getWorkspaceRestoreContext: vi.fn(async () => null),
+    saveWorkspaceRestoreContext: vi.fn(async ({ lastWorkspace, lastOpenedScanId }) => ({
+      schemaVersion: 1,
+      lastWorkspace,
+      lastOpenedScanId,
+      updatedAt: "2026-04-22T10:00:00Z",
+    })),
     listScanHistory: vi.fn(async () => [makeHistoryEntry(scan.scanId)]),
     openScanHistory: vi.fn(async () => scan),
     listScanRuns: vi.fn(async () => []),
@@ -446,10 +453,27 @@ function createDuplicateClient(options?: {
   };
 }
 
+async function activateWorkspace(label: string) {
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("tab", { name: label }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: label })).toHaveAttribute("aria-selected", "true");
+  });
+}
+
+function getDuplicatesPanel() {
+  return screen.getByRole("tabpanel", { name: "Duplicates" });
+}
+
 describe("Space Sift duplicate workflow", () => {
   it("runs duplicate analysis from a loaded scan and renders verified groups", async () => {
     const mock = createDuplicateClient();
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     expect(
       await screen.findByRole(
@@ -477,8 +501,9 @@ describe("Space Sift duplicate workflow", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/full hash/i)).toBeInTheDocument();
-      expect(screen.getByText(/3 items processed/i)).toBeInTheDocument();
+      const duplicatesPanel = getDuplicatesPanel();
+      expect(within(duplicatesPanel).getByText(/^full hash$/i)).toBeInTheDocument();
+      expect(within(duplicatesPanel).getByText(/3 items processed/i)).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -518,6 +543,7 @@ describe("Space Sift duplicate workflow", () => {
   it("cancels a running duplicate analysis and returns to a clean review state", async () => {
     const mock = createDuplicateClient();
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     expect(
       await screen.findByRole(
@@ -543,8 +569,9 @@ describe("Space Sift duplicate workflow", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/full hash/i)).toBeInTheDocument();
-      expect(screen.getByText(/3 items processed/i)).toBeInTheDocument();
+      const duplicatesPanel = getDuplicatesPanel();
+      expect(within(duplicatesPanel).getByText(/^full hash$/i)).toBeInTheDocument();
+      expect(within(duplicatesPanel).getByText(/3 items processed/i)).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: /cancel analysis/i }),
       ).toBeInTheDocument();
@@ -570,7 +597,7 @@ describe("Space Sift duplicate workflow", () => {
       expect(
         screen.getByText(/duplicate analysis cancelled before completion/i),
       ).toBeInTheDocument();
-      expect(screen.queryByText(/3 items processed/i)).not.toBeInTheDocument();
+      expect(within(getDuplicatesPanel()).queryByText(/3 items processed/i)).not.toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: /analyze duplicates/i }),
       ).toBeEnabled();
@@ -583,6 +610,7 @@ describe("Space Sift duplicate workflow", () => {
   it("applies keep-selection helpers and manual keep selection", async () => {
     const mock = createDuplicateClient();
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     expect(
       await screen.findByRole(
@@ -674,6 +702,7 @@ describe("Space Sift duplicate workflow", () => {
       initialScanStatus: makeCompletedScanStatus(scan.scanId),
     });
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     expect(
       await screen.findByRole(
@@ -733,6 +762,7 @@ describe("Space Sift duplicate workflow", () => {
   it("keeps duplicate details open when the same completed snapshot is replayed", async () => {
     const mock = createDuplicateClient();
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     expect(
       await screen.findByRole(
@@ -791,6 +821,7 @@ describe("Space Sift duplicate workflow", () => {
       initialScanStatus: makeCompletedScanStatus(scan.scanId),
     });
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     expect(
       await screen.findByRole(
@@ -862,6 +893,7 @@ describe("Space Sift duplicate workflow", () => {
       initialScanStatus: makeCompletedScanStatus(scan.scanId),
     });
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     expect(
       await screen.findByRole(
@@ -937,6 +969,7 @@ describe("Space Sift duplicate workflow", () => {
   it("keeps real file names visible in the results table after duplicate analysis loads", async () => {
     const mock = createDuplicateClient();
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     expect(
       await screen.findByRole(
@@ -961,6 +994,8 @@ describe("Space Sift duplicate workflow", () => {
       });
     });
 
+    await activateWorkspace("Explorer");
+
     const contentsTable = await screen.findByRole("table", {
       name: /current folder contents/i,
     });
@@ -979,6 +1014,7 @@ describe("Space Sift duplicate workflow", () => {
       initialScanStatus: makeCompletedScanStatus("scan-legacy"),
     });
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     await waitFor(() => {
       expect(screen.getByText(/fresh scan is required before duplicate analysis/i)).toBeInTheDocument();
@@ -1006,6 +1042,7 @@ describe("Space Sift duplicate workflow", () => {
       },
     });
     render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /analyze duplicates/i })).toBeInTheDocument();
@@ -1030,6 +1067,64 @@ describe("Space Sift duplicate workflow", () => {
       expect(screen.getByText(/no fully verified duplicate groups/i)).toBeInTheDocument();
       expect(screen.getByText(/missing\.bin/i)).toBeInTheDocument();
       expect(screen.getByText(/path no longer exists/i)).toBeInTheDocument();
+    });
+  }, uiTestTimeout);
+
+  it("shows a shell live-task notice without stealing focus from another workspace", async () => {
+    const mock = createDuplicateClient();
+    render(<App client={mock.client} />);
+    await activateWorkspace("Duplicates");
+
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /analyze duplicates/i },
+        { timeout: uiReadyTimeout },
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /analyze duplicates/i }));
+
+    await act(async () => {
+      mock.emitDuplicate({
+        analysisId: "analysis-1",
+        scanId: "scan-duplicates",
+        state: "running",
+        stage: "full_hash",
+        itemsProcessed: 3,
+        groupsEmitted: 0,
+        message: null,
+        completedAnalysisId: null,
+      });
+    });
+
+    await activateWorkspace("Explorer");
+
+    const explorerTab = screen.getByRole("tab", { name: "Explorer" });
+    explorerTab.focus();
+
+    await act(async () => {
+      mock.emitDuplicate({
+        analysisId: "analysis-1",
+        scanId: "scan-duplicates",
+        state: "running",
+        stage: "full_hash",
+        itemsProcessed: 4,
+        groupsEmitted: 0,
+        message: null,
+        completedAnalysisId: null,
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/duplicate analysis is running for the loaded scan\. review progress in duplicates\./i),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Explorer" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(explorerTab).toHaveFocus();
     });
   }, uiTestTimeout);
 });

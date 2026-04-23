@@ -1,0 +1,13 @@
+change_id: 2026-04-22-workspace-navigation-ui-m2-shell-status
+title: Workspace navigation M2 shell and global status
+status: implemented
+implemented_on: 2026-04-22
+plan: docs/plans/2026-04-22-space-sift-workspace-navigation-ui.md
+milestone: M2
+feature_spec: specs/space-sift-workspace-navigation.md
+test_spec: specs/space-sift-workspace-navigation.test.md
+architecture: docs/architecture/2026-04-22-workspace-navigation-ui.md
+summary:
+  - Add an accessible workspace shell with one active tabpanel at a time.
+  - Add a shell-owned global status model with deterministic state labels and next safe action selection.
+  - Update workflow tests to navigate the workspace shell explicitly and verify the shell contract without pulling M3 auto-switches forward.
