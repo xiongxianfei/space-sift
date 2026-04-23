@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Space Sift — Tabbed UI Prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a1020;
+      --bg-2: #0d1730;
+      --panel: rgba(16, 26, 49, 0.92);
+      --panel-2: rgba(21, 34, 64, 0.92);
+      --panel-3: rgba(255, 255, 255, 0.045);
+      --line: rgba(255, 255, 255, 0.12);
+      --line-strong: rgba(255, 255, 255, 0.2);
+      --text: #f5f7fb;
+      --muted: #aeb9cd;
+      --soft: #d7deeb;
+      --accent: #72e0c3;
+      --accent-2: #86a9ff;
+      --danger: #ff8f9b;
+      --warning: #ffd480;
+      --ok: #8ff0b8;
+      --shadow: 0 22px 70px rgba(0, 0, 0, 0.45);
+      --radius-lg: 28px;
+      --radius: 18px;
+      --radius-sm: 12px;
+      --space: clamp(16px, 2vw, 28px);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 15% 0%, rgba(114, 224, 195, 0.25), transparent 34%),
+        radial-gradient(circle at 85% 10%, rgba(134, 169, 255, 0.18), transparent 32%),
+        linear-gradient(135deg, var(--bg) 0%, var(--bg-2) 100%);
+      color: var(--text);
+    }
+
+    button, input, select { font: inherit; }
+
+    .app {
+      width: min(1480px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: start;
+      margin-bottom: 18px;
+    }
+
+    .brand {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .logo {
+      width: 54px;
+      height: 54px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(114, 224, 195, 0.95), rgba(134, 169, 255, 0.86));
+      color: #06111e;
+      font-weight: 900;
+      box-shadow: 0 14px 40px rgba(114, 224, 195, 0.22);
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: clamp(28px, 3vw, 46px); letter-spacing: -0.045em; }
+    h2 { font-size: clamp(22px, 2vw, 30px); letter-spacing: -0.03em; }
+    h3 { font-size: 17px; letter-spacing: -0.01em; }
+    .lede { color: var(--muted); max-width: 820px; margin-top: 6px; line-height: 1.55; }
+
+    .utility {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 7px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--soft);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 0 4px rgba(143, 240, 184, 0.13);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .sidebar, .panel, .command, .card, .callout, .modal-card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 18px;
+      border-radius: var(--radius-lg);
+      padding: 14px;
+    }
+
+    .nav-label {
+      padding: 10px 12px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    [role="tablist"] {
+      display: grid;
+      gap: 8px;
+    }
+
+    [role="tab"] {
+      width: 100%;
+      border: 0;
+      border-radius: 16px;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      text-align: left;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    [role="tab"]:hover,
+    [role="tab"]:focus-visible {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.07);
+      outline: none;
+    }
+
+    [role="tab"][aria-selected="true"] {
+      color: var(--text);
+      background: linear-gradient(135deg, rgba(114, 224, 195, 0.18), rgba(134, 169, 255, 0.16));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+    }
+
+    .tab-icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.08);
+      font-size: 18px;
+    }
+
+    .tab-title { font-weight: 750; }
+    .tab-sub { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .badge { border-radius: 999px; padding: 4px 8px; background: rgba(255, 255, 255, 0.09); color: var(--soft); font-size: 12px; }
+
+    .main { display: grid; gap: 18px; }
+    [role="tabpanel"] { display: none; }
+    [role="tabpanel"].active { display: grid; gap: 18px; }
+
+    .panel {
+      border-radius: var(--radius-lg);
+      padding: clamp(18px, 2vw, 28px);
+    }
+
+    .panel-head {
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      align-items: start;
+      margin-bottom: 18px;
+    }
+
+    .panel-copy { color: var(--muted); margin-top: 6px; line-height: 1.55; max-width: 780px; }
+
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .split { grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr); }
+
+    .card {
+      border-radius: var(--radius);
+      padding: 18px;
+      background: var(--panel-2);
+      box-shadow: none;
+    }
+
+    .card.flat { background: rgba(255, 255, 255, 0.045); }
+    .metric { display: grid; gap: 6px; }
+    .metric-value { font-size: clamp(24px, 2.5vw, 36px); font-weight: 850; letter-spacing: -0.04em; }
+    .metric-label { color: var(--muted); font-size: 13px; }
+
+    .command {
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    label { display: grid; gap: 8px; color: var(--soft); font-size: 13px; font-weight: 700; }
+
+    input[type="text"], select {
+      width: 100%;
+      min-height: 44px;
+      border-radius: 14px;
+      border: 1px solid var(--line-strong);
+      background: rgba(5, 11, 24, 0.55);
+      color: var(--text);
+      padding: 0 13px;
+      outline: none;
+    }
+
+    input[type="text"]:focus, select:focus {
+      border-color: rgba(114, 224, 195, 0.65);
+      box-shadow: 0 0 0 4px rgba(114, 224, 195, 0.12);
+    }
+
+    .btn {
+      min-height: 44px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      padding: 0 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #06111e;
+      background: var(--accent);
+      font-weight: 850;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn.secondary {
+      color: var(--text);
+      border-color: var(--line-strong);
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .btn.danger {
+      color: #21080d;
+      background: var(--danger);
+    }
+
+    .btn:disabled, .disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .status-bar {
+      display: grid;
+      gap: 10px;
+      margin: 14px 0 0;
+    }
+
+    .progress-track {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.09);
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 62%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 780px;
+    }
+
+    th, td {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    tr:last-child td { border-bottom: 0; }
+    td { color: var(--soft); }
+    .path { color: var(--text); font-weight: 720; }
+    .mono { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; color: var(--muted); }
+
+    .usage {
+      width: 140px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .mini-track { height: 8px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; }
+    .mini-fill { height: 100%; background: var(--accent-2); border-radius: inherit; }
+
+    .list { display: grid; gap: 12px; }
+    .list-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.045);
+    }
+
+    .list-item-title { color: var(--text); font-weight: 800; }
+    .list-item-meta { color: var(--muted); margin-top: 4px; font-size: 13px; }
+
+    .callout {
+      border-radius: var(--radius);
+      padding: 16px;
+      background: rgba(255, 212, 128, 0.09);
+      border-color: rgba(255, 212, 128, 0.28);
+      color: var(--soft);
+      box-shadow: none;
+    }
+
+    .callout.danger {
+      background: rgba(255, 143, 155, 0.09);
+      border-color: rgba(255, 143, 155, 0.32);
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .step {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: rgba(114, 224, 195, 0.15);
+      color: var(--accent);
+      font-weight: 850;
+      margin-bottom: 10px;
+    }
+
+    .empty {
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      border: 1px dashed var(--line-strong);
+      border-radius: var(--radius);
+      color: var(--muted);
+      padding: 24px;
+    }
+
+    .footer-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px; }
+
+    .modal-card {
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      background: linear-gradient(135deg, rgba(21, 34, 64, 0.96), rgba(16, 26, 49, 0.96));
+      box-shadow: none;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: start;
+      gap: 10px;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--soft);
+    }
+
+    .checkbox-row input { margin-top: 3px; }
+
+    @media (max-width: 1050px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: static; }
+      [role="tablist"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid.two, .grid.three, .grid.four, .split, .steps { grid-template-columns: 1fr; }
+      .command { grid-template-columns: 1fr; }
+      .topbar { grid-template-columns: 1fr; }
+      .utility { justify-content: flex-start; }
+    }
+
+    @media (max-width: 640px) {
+      .app { width: min(100% - 18px, 1480px); padding-top: 12px; }
+      [role="tablist"] { grid-template-columns: 1fr; }
+      .panel-head { display: grid; }
+      .list-item { grid-template-columns: 1fr; }
+      .footer-actions { justify-content: stretch; }
+      .btn { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">SS</div>
+        <div>
+          <h1>Space Sift</h1>
+          <p class="lede">A tabbed Windows 11 workflow for scanning space usage, reopening local history, reviewing duplicates, and executing cleanup only after a safe preview.</p>
+        </div>
+      </div>
+      <div class="utility" aria-label="Application status">
+        <span class="pill"><span class="dot"></span> Desktop bridge connected</span>
+        <span class="pill">Recycle Bin first</span>
+        <span class="pill">Local SQLite history</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" aria-label="Workspace navigation">
+        <div class="nav-label">Workspace</div>
+        <div role="tablist" aria-orientation="vertical" aria-label="Space Sift sections">
+          <button id="tab-overview" role="tab" aria-selected="true" aria-controls="panel-overview" data-tab="overview" tabindex="0">
+            <span class="tab-icon">⌂</span><span><span class="tab-title">Overview</span><span class="tab-sub">Status and next action</span></span><span class="badge">Home</span>
+          </button>
+          <button id="tab-scan" role="tab" aria-selected="false" aria-controls="panel-scan" data-tab="scan" tabindex="-1">
+            <span class="tab-icon">⌕</span><span><span class="tab-title">Scan</span><span class="tab-sub">Start and monitor</span></span><span class="badge">Live</span>
+          </button>
+          <button id="tab-history" role="tab" aria-selected="false" aria-controls="panel-history" data-tab="history" tabindex="-1">
+            <span class="tab-icon">◴</span><span><span class="tab-title">History</span><span class="tab-sub">Completed and interrupted</span></span><span class="badge">8</span>
+          </button>
+          <button id="tab-explorer" role="tab" aria-selected="false" aria-controls="panel-explorer" data-tab="explorer" tabindex="-1">
+            <span class="tab-icon">▦</span><span><span class="tab-title">Explorer</span><span class="tab-sub">Browse result tree</span></span>
+          </button>
+          <button id="tab-duplicates" role="tab" aria-selected="false" aria-controls="panel-duplicates" data-tab="duplicates" tabindex="-1">
+            <span class="tab-icon">◎</span><span><span class="tab-title">Duplicates</span><span class="tab-sub">Verify before marking</span></span><span class="badge">12</span>
+          </button>
+          <button id="tab-cleanup" role="tab" aria-selected="false" aria-controls="panel-cleanup" data-tab="cleanup" tabindex="-1">
+            <span class="tab-icon">♻</span><span><span class="tab-title">Cleanup</span><span class="tab-sub">Preview, then execute</span></span><span class="badge">Safe</span>
+          </button>
+          <button id="tab-safety" role="tab" aria-selected="false" aria-controls="panel-safety" data-tab="safety" tabindex="-1">
+            <span class="tab-icon">◇</span><span><span class="tab-title">Safety</span><span class="tab-sub">Rules and guardrails</span></span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" class="active">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Overview</h2>
+                <p class="panel-copy">The home tab answers three questions immediately: what is loaded, what is running, and what is the next safe action?</p>
+              </div>
+              <button class="btn" data-jump="scan">Start a scan</button>
+            </div>
+            <div class="grid four">
+              <div class="card metric"><span class="metric-value">418 GB</span><span class="metric-label">Current scan total</span></div>
+              <div class="card metric"><span class="metric-value">71,240</span><span class="metric-label">Files scanned</span></div>
+              <div class="card metric"><span class="metric-value">12.8 GB</span><span class="metric-label">Duplicate reclaim preview</span></div>
+              <div class="card metric"><span class="metric-value">0</span><span class="metric-label">Actions executed without preview</span></div>
+            </div>
+          </div>
+
+          <div class="grid split">
+            <div class="panel">
+              <h3>Recommended next steps</h3>
+              <div class="steps" style="margin-top: 14px;">
+                <div class="step"><div class="step-num">1</div><strong>Scan</strong><p class="list-item-meta">Pick a drive or folder. Keep progress visible without blocking history.</p></div>
+                <div class="step"><div class="step-num">2</div><strong>Explore</strong><p class="list-item-meta">Browse large folders with breadcrumbs and open-in-Explorer handoff.</p></div>
+                <div class="step"><div class="step-num">3</div><strong>Verify</strong><p class="list-item-meta">Run duplicate analysis and choose the copy to keep per group.</p></div>
+                <div class="step"><div class="step-num">4</div><strong>Preview cleanup</strong><p class="list-item-meta">Inspect every action before Recycle Bin or permanent delete.</p></div>
+              </div>
+            </div>
+            <div class="panel">
+              <h3>Current activity</h3>
+              <div class="status-bar">
+                <div class="list-item">
+                  <div><div class="list-item-title">Scanning Downloads</div><div class="list-item-meta mono">C:\Users\xiongxianfei\Downloads\Videos</div></div>
+                  <span class="pill">62%</span>
+                </div>
+                <div class="progress-track"><div class="progress-fill"></div></div>
+                <div class="grid two">
+                  <div class="card flat metric"><span class="metric-value">1,420/s</span><span class="metric-label">Scan rate</span></div>
+                  <div class="card flat metric"><span class="metric-value">3</span><span class="metric-label">Permission skips</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-scan" role="tabpanel" aria-labelledby="tab-scan">
+          <div class="command" aria-label="Start scan command">
+            <label>Scan root
+              <input type="text" value="C:\Users\xiongxianfei\Downloads" aria-label="Scan root path" />
+            </label>
+            <button class="btn">Start scan</button>
+            <button class="btn secondary">Cancel active scan</button>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Live scan</h2><p class="panel-copy">Keep the live scanner in its own tab so users do not lose progress context while reviewing saved results.</p></div>
+              <span class="pill"><span class="dot"></span> Running</span>
+            </div>
+            <div class="grid four">
+              <div class="card metric"><span class="metric-value">71,240</span><span class="metric-label">Files discovered</span></div>
+              <div class="card metric"><span class="metric-value">5,382</span><span class="metric-label">Directories discovered</span></div>
+              <div class="card metric"><span class="metric-value">263 GB</span><span class="metric-label">Bytes processed</span></div>
+              <div class="card metric"><span class="metric-value">62%</span><span class="metric-label">Progress estimate</span></div>
+            </div>
+            <div class="status-bar">
+              <div class="progress-track"><div class="progress-fill"></div></div>
+              <div class="list-item">
+                <div><div class="list-item-title">Current path</div><div class="list-item-meta mono">C:\Users\xiongxianfei\Downloads\Videos\Archive</div></div>
+                <button class="btn secondary">Open in Explorer</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-history" role="tabpanel" aria-labelledby="tab-history">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>History</h2><p class="panel-copy">Separate completed scans from interrupted runs. Completed scans reopen into Explorer; interrupted runs show continuity fields and only enable resume when <code>can_resume</code> is true.</p></div>
+              <button class="btn secondary">Refresh</button>
+            </div>
+            <div class="grid two">
+              <label>Filter by root path <input type="text" placeholder="C:\Users\xiongxianfei\Downloads" /></label>
+              <label>Filter by scan ID <input type="text" placeholder="scan-42" /></label>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Completed scans</h3>
+            <div class="table-wrap" style="margin-top: 14px;">
+              <table>
+                <thead><tr><th>Root</th><th>Completed</th><th>Total size</th><th>Scan ID</th><th>Action</th></tr></thead>
+                <tbody>
+                  <tr><td class="path">C:\Users\xiongxianfei\Downloads</td><td>Apr 22, 2026 10:18 AM</td><td>418 GB</td><td class="mono">scan-42</td><td><button class="btn secondary" data-jump="explorer">Reopen</button></td></tr>
+                  <tr><td class="path">D:\Media</td><td>Apr 21, 2026 8:54 PM</td><td>1.2 TB</td><td class="mono">scan-41</td><td><button class="btn secondary" data-jump="explorer">Reopen</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Interrupted runs</h3>
+            <div class="table-wrap" style="margin-top: 14px;">
+              <table>
+                <thead><tr><th>Root</th><th>Status</th><th>Created</th><th>Seq</th><th>Items</th><th>Errors</th><th>Progress</th><th>Rate</th><th>Actions</th></tr></thead>
+                <tbody>
+                  <tr><td class="path">D:\Media</td><td><span class="pill">stale</span></td><td>Apr 22, 2026 9:41 AM</td><td>128</td><td>83,920</td><td>1</td><td>44%</td><td>940/s</td><td><button class="btn secondary disabled" disabled>Resume unavailable</button> <button class="btn danger">Cancel</button></td></tr>
+                  <tr><td class="path">E:\Backups</td><td><span class="pill">abandoned</span></td><td>Apr 20, 2026 11:10 PM</td><td>77</td><td>12,401</td><td>0</td><td>18%</td><td>510/s</td><td><button class="btn secondary disabled" disabled>Resume unavailable</button> <button class="btn danger">Cancel</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-explorer" role="tabpanel" aria-labelledby="tab-explorer">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Results explorer</h2><p class="panel-copy">A read-only, breadcrumb-driven tree for the loaded scan, with a space map per current folder and Explorer handoff.</p></div>
+              <div class="utility"><button class="btn secondary">Sort by size</button><button class="btn secondary">Sort by name</button></div>
+            </div>
+            <div class="list-item">
+              <div><div class="list-item-title">Current location</div><div class="list-item-meta mono">C:\Users\xiongxianfei\Downloads</div></div>
+              <button class="btn secondary">Open current path</button>
+            </div>
+            <div class="table-wrap" style="margin-top: 14px;">
+              <table>
+                <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Usage</th><th>Actions</th></tr></thead>
+                <tbody>
+                  <tr><td class="path">Videos</td><td>directory</td><td>166 GB</td><td><div class="usage"><span class="mini-track"><span class="mini-fill" style="width: 78%"></span></span><span>78%</span></div></td><td><button class="btn secondary">Browse</button> <button class="btn secondary">Open</button></td></tr>
+                  <tr><td class="path">Installers</td><td>directory</td><td>68 GB</td><td><div class="usage"><span class="mini-track"><span class="mini-fill" style="width: 32%"></span></span><span>32%</span></div></td><td><button class="btn secondary">Browse</button> <button class="btn secondary">Open</button></td></tr>
+                  <tr><td class="path">project-export.zip</td><td>file</td><td>8.4 GB</td><td><div class="usage"><span class="mini-track"><span class="mini-fill" style="width: 12%"></span></span><span>12%</span></div></td><td><button class="btn secondary">Open</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-duplicates" role="tabpanel" aria-labelledby="tab-duplicates">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Duplicate analysis</h2><p class="panel-copy">Keep duplicate review separate from cleanup. The user chooses the copy to keep; cleanup only consumes explicit delete candidates.</p></div>
+              <div class="utility"><button class="btn">Analyze duplicates</button><button class="btn secondary">Cancel analysis</button></div>
+            </div>
+            <div class="grid three">
+              <div class="card metric"><span class="metric-value">12</span><span class="metric-label">Verified groups</span></div>
+              <div class="card metric"><span class="metric-value">38</span><span class="metric-label">Files marked later</span></div>
+              <div class="card metric"><span class="metric-value">12.8 GB</span><span class="metric-label">Reclaimable preview</span></div>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Review groups</h3>
+            <div class="list" style="margin-top: 14px;">
+              <div class="card flat">
+                <div class="panel-head" style="margin: 0 0 12px;"><div><strong>3 verified copies</strong><p class="list-item-meta">2.4 GB each · 4.8 GB maximum reclaimable</p></div><button class="btn secondary">Expand</button></div>
+                <div class="grid three">
+                  <label class="checkbox-row"><input type="radio" name="dupe1" checked /> Keep newest copy<br><span class="mono">Downloads\Videos\final.mp4</span></label>
+                  <label class="checkbox-row"><input type="radio" name="dupe1" /> Keep oldest copy<br><span class="mono">Archive\final.mp4</span></label>
+                  <label class="checkbox-row"><input type="radio" name="dupe1" /> Keep custom copy<br><span class="mono">Desktop\final.mp4</span></label>
+                </div>
+              </div>
+            </div>
+            <div class="footer-actions"><button class="btn" data-jump="cleanup">Use selected duplicate candidates in cleanup</button></div>
+          </div>
+        </section>
+
+        <section id="panel-cleanup" role="tabpanel" aria-labelledby="tab-cleanup">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>Cleanup</h2><p class="panel-copy">A three-step destructive-action funnel: choose sources, preview exact candidates, execute with Recycle Bin default. Permanent delete is intentionally high-friction.</p></div>
+              <span class="pill">No blind delete</span>
+            </div>
+            <div class="steps">
+              <div class="step"><div class="step-num">1</div><strong>Select sources</strong><p class="list-item-meta">Duplicate candidates and narrow built-in cleanup rules.</p></div>
+              <div class="step"><div class="step-num">2</div><strong>Refresh preview</strong><p class="list-item-meta">Validate paths and metadata before any action.</p></div>
+              <div class="step"><div class="step-num">3</div><strong>Recycle Bin first</strong><p class="list-item-meta">Default execution mode is recoverable.</p></div>
+              <div class="step"><div class="step-num">4</div><strong>Confirm permanent</strong><p class="list-item-meta">Separate checkbox and warning copy required.</p></div>
+            </div>
+          </div>
+          <div class="grid split">
+            <div class="panel">
+              <h3>Cleanup sources</h3>
+              <div class="list" style="margin-top: 14px;">
+                <label class="checkbox-row"><input type="checkbox" checked /> Include 38 duplicate delete candidates selected in Duplicates</label>
+                <label class="checkbox-row"><input type="checkbox" /> Temporary installer cache rule</label>
+                <label class="checkbox-row"><input type="checkbox" /> Empty downloaded archives older than rule threshold</label>
+              </div>
+              <div class="footer-actions"><button class="btn">Refresh cleanup preview</button></div>
+            </div>
+            <div class="modal-card">
+              <h3>Execution guardrail</h3>
+              <p class="panel-copy">Protected paths require explicit capability. Permanent delete remains disabled until the user confirms they understand it bypasses Recycle Bin.</p>
+              <div class="callout danger" style="margin-top: 14px;">Permanent delete should never be the primary action. Make the user opt in after reading the warning.</div>
+              <label class="checkbox-row" style="margin-top: 12px;"><input type="checkbox" /> I understand permanent delete cannot be recovered from Recycle Bin.</label>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Cleanup preview</h3>
+            <div class="table-wrap" style="margin-top: 14px;">
+              <table>
+                <thead><tr><th>Candidate</th><th>Source</th><th>Size</th><th>Validation</th></tr></thead>
+                <tbody>
+                  <tr><td class="path">Downloads\Videos\final-copy.mp4</td><td>Duplicate review</td><td>2.4 GB</td><td><span class="pill">valid</span></td></tr>
+                  <tr><td class="path">Downloads\Installers\old-driver.exe</td><td>Rule: installer cache</td><td>540 MB</td><td><span class="pill">valid</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="footer-actions"><button class="btn">Move previewed files to Recycle Bin</button><button class="btn danger disabled" disabled>Permanent delete</button></div>
+          </div>
+        </section>
+
+        <section id="panel-safety" role="tabpanel" aria-labelledby="tab-safety">
+          <div class="panel">
+            <div class="panel-head"><div><h2>Safety model</h2><p class="panel-copy">Make the safety rules visible instead of hiding them in copy. Users should know why some operations are unavailable.</p></div></div>
+            <div class="grid three">
+              <div class="card"><h3>Unprivileged by default</h3><p class="panel-copy">Normal scanning and history flows stay in the standard desktop process.</p></div>
+              <div class="card"><h3>Recycle Bin first</h3><p class="panel-copy">Recoverable deletion is the default. Permanent deletion requires an explicit advanced confirmation.</p></div>
+              <div class="card"><h3>Local-only history</h3><p class="panel-copy">Completed scans and cleanup logs are local to SQLite-backed app storage.</p></div>
+            </div>
+            <div class="callout" style="margin-top: 14px;">Best practice: disable or explain unavailable resume actions with <code>can_resume</code>, not a separate UI-only capability flag.</div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    const panels = [...document.querySelectorAll('[role="tabpanel"]')];
+
+    function setActiveTab(tab) {
+      tabs.forEach((candidate) => {
+        const active = candidate === tab;
+        candidate.setAttribute('aria-selected', String(active));
+        candidate.tabIndex = active ? 0 : -1;
+      });
+      panels.forEach((panel) => panel.classList.remove('active'));
+      const panel = document.querySelector(`#panel-${tab.dataset.tab}`);
+      if (panel) panel.classList.add('active');
+      tab.focus({ preventScroll: true });
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => setActiveTab(tab));
+      tab.addEventListener('keydown', (event) => {
+        const horizontal = window.matchMedia('(max-width: 1050px)').matches;
+        const prevKeys = horizontal ? ['ArrowLeft', 'ArrowUp'] : ['ArrowUp', 'ArrowLeft'];
+        const nextKeys = horizontal ? ['ArrowRight', 'ArrowDown'] : ['ArrowDown', 'ArrowRight'];
+        if (nextKeys.includes(event.key)) {
+          event.preventDefault();
+          setActiveTab(tabs[(index + 1) % tabs.length]);
+        }
+        if (prevKeys.includes(event.key)) {
+          event.preventDefault();
+          setActiveTab(tabs[(index - 1 + tabs.length) % tabs.length]);
+        }
+        if (event.key === 'Home') {
+          event.preventDefault();
+          setActiveTab(tabs[0]);
+        }
+        if (event.key === 'End') {
+          event.preventDefault();
+          setActiveTab(tabs[tabs.length - 1]);
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-jump]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const tab = tabs.find((candidate) => candidate.dataset.tab === button.dataset.jump);
+        if (tab) setActiveTab(tab);
+      });
+    });
+  </script>
+</body>
+</html>

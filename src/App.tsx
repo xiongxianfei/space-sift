@@ -605,7 +605,17 @@ function App({ client = unsupportedClient }: AppProps) {
         event.preventDefault();
         focusWorkspaceAtIndex((currentIndex + 1) % workspaceDefinitions.length);
         return;
+      case "ArrowDown":
+        event.preventDefault();
+        focusWorkspaceAtIndex((currentIndex + 1) % workspaceDefinitions.length);
+        return;
       case "ArrowLeft":
+        event.preventDefault();
+        focusWorkspaceAtIndex(
+          (currentIndex - 1 + workspaceDefinitions.length) % workspaceDefinitions.length,
+        );
+        return;
+      case "ArrowUp":
         event.preventDefault();
         focusWorkspaceAtIndex(
           (currentIndex - 1 + workspaceDefinitions.length) % workspaceDefinitions.length,
@@ -2703,97 +2713,115 @@ function App({ client = unsupportedClient }: AppProps) {
 
   return (
     <main className="shell">
-      <section className="hero">
-        <div className="eyebrow">Windows 11 results explorer, duplicates, and cleanup preview</div>
-        <h1>Space Sift</h1>
-        <p className="lede">
-          Scan a folder or drive, surface the largest space consumers, verify duplicate
-          files, preview a narrow cleanup set, and delete through a review-first desktop
-          flow instead of blind cleanup.
-        </p>
-        <div className="hero-callouts" aria-label="Current scope">
-          <span>Browseable folder drill-down</span>
-          <span>Verified duplicate groups</span>
-          <span>Recycle Bin first cleanup</span>
-        </div>
-      </section>
-
-      <section className="panel workspace-status-panel" role="region" aria-label="Global status">
-        <div className="workspace-status-layout">
-          <div className="workspace-status-copy">
-            <span className="status-label">Global status</span>
-            <h2>{globalStatus.primaryStateLabel}</h2>
-            <p className="current-path">{globalStatus.contextLabel}</p>
+      <header className="topbar" role="banner">
+        <div className="brand">
+          <div className="logo-mark" aria-hidden="true">
+            SS
           </div>
-
-          <div className="workspace-status-summary">
-            <article className="summary-card">
-              <span>Summary</span>
-              <strong>{globalStatus.summaryLabel ?? "No additional summary yet."}</strong>
-            </article>
-            <article className="summary-card">
-              <span>Active workspace</span>
-              <strong>{activeWorkspaceDefinition.label}</strong>
-              <p className="current-path">{activeWorkspaceDefinition.description}</p>
-            </article>
-          </div>
-
-          <div className="workspace-status-action">
-            {nextSafeAction ? (
-              <button
-                type="button"
-                className="primary-button"
-                onClick={handleGlobalStatusAction}
-              >
-                {nextSafeAction.label}
-              </button>
-            ) : (
-              <p className="empty-state">{globalStatus.noActionLabel}</p>
-            )}
+          <div>
+            <h1>Space Sift</h1>
+            <p className="lede">
+              A local Windows workflow for scanning space usage, reopening history,
+              reviewing duplicates, and executing cleanup only after a safe preview.
+            </p>
           </div>
         </div>
-      </section>
 
-      {shellNotices.map((entry) => (
-        <p className="notice-banner shell-banner" key={entry.key}>
-          {entry.message}
-        </p>
-      ))}
-      {errorMessage ? <p className="error-banner shell-banner">{errorMessage}</p> : null}
-
-      <section className="panel workspace-nav-panel">
-        <div className="panel-header compact-header">
-          <h2>Workspaces</h2>
-          <p>Exactly one workspace stays active at a time; manual tab selection never starts backend work by itself.</p>
+        <div className="utility" aria-label="Application safety status">
+          <span className="status-pill">Desktop bridge connected</span>
+          <span className="status-pill">Recycle Bin first</span>
+          <span className="status-pill">Local SQLite history</span>
         </div>
+      </header>
 
-        <div className="workspace-tablist" role="tablist" aria-label="Workspace navigation">
-          {workspaceDefinitions.map((definition) => {
-            const isSelected = activeWorkspace === definition.value;
+      <div className="workspace-layout">
+        <nav className="workspace-sidebar" aria-label="Workspace navigation">
+          <div className="nav-label">Workspace</div>
+          <div
+            className="workspace-tablist"
+            role="tablist"
+            aria-label="Workspace navigation"
+            aria-orientation="vertical"
+          >
+            {workspaceDefinitions.map((definition, index) => {
+              const isSelected = activeWorkspace === definition.value;
 
-            return (
-              <button
-                key={definition.value}
-                ref={(element) => setWorkspaceTabRef(definition.value, element)}
-                type="button"
-                id={`workspace-tab-${definition.value}`}
-                role="tab"
-                aria-label={definition.label}
-                aria-selected={isSelected}
-                aria-controls={`workspace-panel-${definition.value}`}
-                className={`workspace-tab ${isSelected ? "is-active" : ""}`}
-                onClick={() => activateWorkspace(definition.value)}
-                onKeyDown={(event) => handleWorkspaceKeyDown(event, definition.value)}
-              >
-                <span className="workspace-tab-label">{definition.label}</span>
-                <span className="workspace-tab-description">{definition.description}</span>
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={definition.value}
+                  ref={(element) => setWorkspaceTabRef(definition.value, element)}
+                  type="button"
+                  id={`workspace-tab-${definition.value}`}
+                  role="tab"
+                  aria-label={definition.label}
+                  aria-selected={isSelected}
+                  aria-controls={`workspace-panel-${definition.value}`}
+                  className={`workspace-tab ${isSelected ? "is-active" : ""}`}
+                  onClick={() => activateWorkspace(definition.value)}
+                  onKeyDown={(event) => handleWorkspaceKeyDown(event, definition.value)}
+                >
+                  <span className="workspace-tab-icon" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <span className="workspace-tab-copy">
+                    <span className="workspace-tab-label">{definition.label}</span>
+                    <span className="workspace-tab-description">
+                      {definition.description}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className="workspace-main" role="region" aria-label="Active workspace content">
+          <section className="panel workspace-status-panel" role="region" aria-label="Global status">
+            <div className="workspace-status-layout">
+              <div className="workspace-status-copy">
+                <span className="status-label">Global status</span>
+                <h2>{globalStatus.primaryStateLabel}</h2>
+                <p className="current-path">{globalStatus.contextLabel}</p>
+              </div>
+
+              <div className="workspace-status-summary">
+                <article className="summary-card">
+                  <span>Summary</span>
+                  <strong>{globalStatus.summaryLabel ?? "No additional summary yet."}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Active workspace</span>
+                  <strong>{activeWorkspaceDefinition.label}</strong>
+                  <p className="current-path">{activeWorkspaceDefinition.description}</p>
+                </article>
+              </div>
+
+              <div className="workspace-status-action">
+                {nextSafeAction ? (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={handleGlobalStatusAction}
+                  >
+                    {nextSafeAction.label}
+                  </button>
+                ) : (
+                  <p className="empty-state">{globalStatus.noActionLabel}</p>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {shellNotices.map((entry) => (
+            <p className="notice-banner shell-banner" key={entry.key}>
+              {entry.message}
+            </p>
+          ))}
+          {errorMessage ? <p className="error-banner shell-banner">{errorMessage}</p> : null}
+
+          {renderActiveWorkspacePanel()}
         </div>
-      </section>
-
-      {renderActiveWorkspacePanel()}
+      </div>
 
       <section className="footer-note">
         <p>

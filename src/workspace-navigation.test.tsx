@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -545,6 +546,51 @@ describe("Space Sift workspace navigation shell", () => {
     expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
     expect(screen.getByRole("tabpanel", { name: "Safety" })).toBeInTheDocument();
     expect(screen.queryByRole("tabpanel", { name: "Overview" })).not.toBeInTheDocument();
+  });
+
+  it("workspace_shell_uses_persistent_header_left_rail_and_active_panel_layout", async () => {
+    render(<App client={createWorkspaceClient()} />);
+
+    await waitForWorkspaceShell();
+
+    const banner = screen.getByRole("banner");
+    expect(within(banner).getByRole("heading", { name: "Space Sift" })).toBeInTheDocument();
+    expect(within(banner).getByText(/recycle bin first/i)).toBeInTheDocument();
+    expect(within(banner).getByText(/local sqlite history/i)).toBeInTheDocument();
+
+    const workspaceNavigation = screen.getByRole("navigation", {
+      name: /workspace navigation/i,
+    });
+    const tablist = within(workspaceNavigation).getByRole("tablist", {
+      name: /workspace navigation/i,
+    });
+    expect(tablist).toHaveAttribute("aria-orientation", "vertical");
+
+    for (const label of [
+      "Overview",
+      "Scan",
+      "History",
+      "Explorer",
+      "Duplicates",
+      "Cleanup",
+      "Safety",
+    ]) {
+      const tab = within(tablist).getByRole("tab", { name: label });
+      expect(tab).toHaveTextContent(label);
+      expect(tab).toHaveTextContent(/\S/);
+    }
+
+    const contentRegion = screen.getByRole("region", { name: /active workspace content/i });
+    expect(within(contentRegion).getByRole("tabpanel", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+  });
+
+  it("workspace_shell_styles_define_design_breakpoints", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+
+    expect(appCss).toMatch(/@media\s*\(\s*max-width:\s*1050px\s*\)/);
+    expect(appCss).toMatch(/@media\s*\(\s*max-width:\s*640px\s*\)/);
+    expect(appCss).toMatch(/grid-template-columns:\s*260px\s+minmax\(0,\s*1fr\)/);
   });
 
   it("global_status_visible_on_all_workspaces", async () => {
