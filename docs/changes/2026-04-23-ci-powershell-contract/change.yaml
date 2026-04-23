@@ -1,0 +1,9 @@
+change_id: 2026-04-23-ci-powershell-contract
+title: Canonicalize the PowerShell CI parity contract
+status: implemented
+implemented_on: 2026-04-23
+plan: docs/plans/2026-04-22-space-sift-workspace-navigation-ui.md
+summary:
+  - Replace the canonical local and GitHub Actions CI entry point with `scripts/ci.ps1` so the Windows-hosted repository contract no longer depends on `bash` shell interop.
+  - Keep `scripts/ci.sh` only as a compatibility wrapper that delegates to the PowerShell script when a Windows PowerShell host is available.
+  - Update authoritative verification references and branch-readiness notes so plan and workflow artifacts match the new CI contract.

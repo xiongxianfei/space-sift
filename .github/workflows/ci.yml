@@ -29,4 +29,5 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run repository CI script
-        run: bash scripts/ci.sh
+        shell: powershell
+        run: .\scripts\ci.ps1

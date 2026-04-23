@@ -2,7 +2,7 @@
 
 ## Status
 
-active
+done
 
 ## Purpose / big picture
 
@@ -273,7 +273,7 @@ them.
 - `M2`: run `npm run test -- src/workspace-navigation.test.tsx`, `npm run lint`, `npm run test`, and `npm run build`. Rust validation is not applicable unless the milestone edits `src-tauri/`.
 - `M3`: run `npm run test -- src/workspace-navigation.test.tsx`, `npm run test -- src/scan-history.test.tsx`, `npm run lint`, and `npm run test`. If `src/workspace-navigation.test.tsx` does not exist yet, the milestone is blocked until it is created from the approved test spec.
 - `M4`: run `npm run test -- src/workspace-navigation.test.tsx`, `npm run test -- src/cleanup.test.tsx`, `npm run test -- src/duplicates.test.tsx`, `npm run lint`, `npm run test`, and `npm run build`. Rust validation is not applicable unless the milestone edits `src-tauri/`.
-- Branch-ready claim: run `bash scripts/ci.sh`.
+- Branch-ready claim: run `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1`.
 - If any command is blocked by missing prerequisites, file locks, or environment issues, record the exact command and error here and in the final report.
 
 ## Risks and recovery
@@ -302,7 +302,7 @@ them.
 - [x] M2 complete
 - [x] M3 complete
 - [x] M4 complete
-- [ ] Branch-wide verification complete
+- [x] Branch-wide verification complete
 
 ## Decision log
 
@@ -323,6 +323,7 @@ them.
 - 2026-04-23: `M4` pairs cleanup execution shell status with the originating scan id and ignores that state after a different stored scan becomes current, so cleanup-derived rescan prompts cannot leak across scan reopen boundaries.
 - 2026-04-23: `M4` keeps interrupted-run attention and active live-task notices visible from any workspace without stealing focus or changing the selected workspace.
 - 2026-04-23: `M4` logs next-safe-action selection and first render of each shell notice key so shell-level status changes remain locally observable without widening backend contracts.
+- 2026-04-23: Branch-ready verification now uses `scripts/ci.ps1` as the canonical CI-parity command on Windows-hosted environments; `scripts/ci.sh` remains only as a compatibility wrapper.
 
 ## Surprises and discoveries
 
@@ -400,6 +401,18 @@ them.
 - `npm run build`
   - passed
 - not applicable for `M4`: `cargo test --manifest-path src-tauri/Cargo.toml -p app-db workspace_restore_context` and `cargo check --manifest-path src-tauri/Cargo.toml` because this milestone stayed in `src/` and did not change `src-tauri/`
+- 2026-04-23 branch-wide verification closeout:
+  - `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1`
+    - passed
+  - `cargo test --manifest-path src-tauri/Cargo.toml -p app-db workspace_restore_context`
+    - passed: `4 passed; 0 failed`
+  - `cargo test --manifest-path src-tauri/Cargo.toml workspace_restore_context_command_boundary`
+    - passed: `2 passed; 0 failed`
+  - `bash -n scripts/ci.sh`
+    - passed
+  - `git diff --check`
+    - passed with only CRLF conversion warnings
+  - unrelated dirty and untracked local state was isolated into stash `verify-isolate-unrelated-2026-04-23` before the final verification pass so this branch-ready diff reflects only the intended CI-contract and workspace-navigation closeout changes
 
 ## Outcome and retrospective
 
@@ -413,9 +426,11 @@ them.
 - This slice extends the active scan and history-review contracts by making the approved workspace navigation transitions automatic, but it does not supersede the underlying scan, duplicate-analysis, cleanup, or continuity contracts those plans already govern.
 - `M4` is complete. The shell now keeps cleanup-completion status scan-scoped, keeps interrupted-run and live-task notices visible from any workspace without focus steal, and logs next-safe-action selection plus notice rendering for local observability.
 - `M4` hardens shell behavior only. It does not add new backend persistence, change cleanup execution rules, or supersede the underlying duplicate-analysis, cleanup, or continuity contracts that the coordinated active plans still govern.
+- Branch-wide verification is complete. The workspace-navigation initiative is now closed with the canonical CI-parity path moved to `scripts/ci.ps1` for Windows-hosted reliability, while `scripts/ci.sh` remains as a compatibility shim.
 
 ## Readiness
 
-This plan is `active`. `M1` through `M4` are complete, and the implemented
-milestone slices are ready for `code-review`. Branch-wide verification remains
-next; do not claim branch readiness until `bash scripts/ci.sh` passes.
+This plan is `done`. `M1` through `M4` and branch-wide verification are
+complete, and the workspace-navigation initiative is ready for PR preparation
+or downstream explanation. Future contract changes should use a new or
+superseding plan instead of reopening this one silently.

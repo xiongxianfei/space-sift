@@ -37,7 +37,7 @@
 
 - Tests are required when behavior can be exercised by a test harness.
 - Regressions MUST be added before or alongside bug fixes that change behavior.
-- `bash scripts/ci.sh` MUST be treated as the canonical CI-parity gate when claiming a branch is ready for review or merge.
+- `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1` MUST be treated as the canonical CI-parity gate when claiming a branch is ready for review or merge.
 - Before claiming a scoped task is complete, agents MUST run the smallest relevant subset of:
   - `npm run lint`
   - `npm run test`
@@ -78,7 +78,7 @@
 
 ## 8) Verification rules
 
-- `.github/workflows/ci.yml` and `bash scripts/ci.sh` define the minimum CI contract for this project.
+- `.github/workflows/ci.yml` and `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1` define the minimum CI contract for this project.
 - `.github/workflows/release.yml` and `bash scripts/release-verify.sh` define the release-readiness contract.
 - Agents MUST attach command-level verification status to final responses for completed work.
 - If required commands cannot run due missing prerequisites, file locks, path-permission failures, or other local-environment constraints, the exact blocking command and error MUST be clearly stated.

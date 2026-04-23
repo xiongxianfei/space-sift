@@ -187,7 +187,7 @@ Observed in `src-tauri/src/state/mod.rs`:
   - Explorer handoff uses `explorer.exe`.
 - Database boundary: local SQLite via `rusqlite`, with the database created under the app data directory.
 - Release automation boundary:
-  - CI: `.github/workflows/ci.yml` runs `bash scripts/ci.sh`;
+  - CI: `.github/workflows/ci.yml` runs `scripts/ci.ps1` under PowerShell;
   - release: `.github/workflows/release.yml` runs `bash scripts/release-verify.sh`, validates signing secrets, generates `src-tauri/tauri.release.conf.json`, and invokes `tauri-apps/tauri-action@v0`.
 - Distribution boundary: `winget/manifests/x/xiongxianfei/SpaceSift/0.1.0/`.
 
@@ -225,9 +225,10 @@ Observed in `src-tauri/src/state/mod.rs`:
   - `npm run build`
   - `cargo check --manifest-path src-tauri/Cargo.toml`
   - `npm run tauri dev`
-  - `bash scripts/ci.sh`
+  - `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1`
   - `bash scripts/release-verify.sh`
-- `scripts/ci.sh` is the canonical CI-parity script and runs `npm ci`, lint, test, build, and Cargo check.
+- `scripts/ci.ps1` is the canonical CI-parity script and runs `npm ci`, lint, test, build, and Cargo check.
+- `scripts/ci.sh` remains as a compatibility wrapper that delegates to the PowerShell script when a Windows PowerShell host is available.
 - `scripts/release-verify.sh` verifies:
   - clean working tree
   - version alignment across `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and `winget/`

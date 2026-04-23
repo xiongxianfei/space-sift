@@ -61,7 +61,7 @@ the entire app as admin.
   - `docs/plans/0000-00-00-example-plan.md`
   - `specs/feature-template.md`
   - `specs/feature-template.test.md`
-  - `scripts/ci.sh`
+  - `scripts/ci.ps1`
   - `scripts/release-verify.sh`
   - `.github/workflows/ci.yml`
   - `.github/workflows/release.yml`
@@ -69,7 +69,7 @@ the entire app as admin.
   approved spec, matching test spec, active plan, `docs/workflows.md`, then the
   agent instructions. Its verification section now lists the current baseline
   commands for lint, test, build, cargo check, and Tauri dev.
-- `README.md`, `AGENTS.md`, `scripts/ci.sh`, and `scripts/release-verify.sh`
+- `README.md`, `AGENTS.md`, `scripts/ci.ps1`, and `scripts/release-verify.sh`
   have now been replaced with repo-specific baseline content for the Milestone 1
   foundation.
 - The local workspace is now a git working tree again after restoring the
@@ -195,7 +195,7 @@ Files or components touched:
 - `specs/space-sift-mvp.test.md`
 - `specs/feature-template.md`
 - `specs/feature-template.test.md`
-- `scripts/ci.sh`
+- `scripts/ci.ps1`
 - `scripts/release-verify.sh`
 - `.github/workflows/ci.yml`
 - `.github/workflows/release.yml`
@@ -373,7 +373,7 @@ Files or components touched:
 - `src-tauri/tauri.conf.json`
 - `src-tauri/icons/**`
 - `.github/workflows/**`
-- `scripts/ci.sh`
+- `scripts/ci.ps1`
 - `scripts/release-verify.sh`
 - `docs/release.md`
 - `winget/**`
@@ -390,7 +390,7 @@ Risk:
   make an otherwise functional MVP feel unsafe or incomplete.
 
 Validation commands:
-- `bash scripts/ci.sh`
+- `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1`
 - `bash scripts/release-verify.sh`
 - `npm run build`
 - `npm run tauri build`
@@ -698,7 +698,7 @@ Planned implementation validation after milestones land:
 - `npm run lint`
 - `npm run tauri dev`
 - `npm run tauri build`
-- `bash scripts/ci.sh`
+- `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1`
 - `bash scripts/release-verify.sh`
 
 Acceptance evidence for the shipped MVP:
