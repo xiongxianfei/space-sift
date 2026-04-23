@@ -13,6 +13,9 @@ and restore-context failure handling were still manual or implicit.
   order: live scan, live duplicate analysis tied to the loaded scan,
   interrupted runs, then validated Explorer restore context, with `Overview` as
   the safe fallback.
+- Startup restore replay now validates and loads durable state without
+  rewriting `lastWorkspace`. That field is still persisted only by manual
+  workspace activation and post-startup contractual switching.
 - The shell now persists `lastWorkspace` and `lastOpenedScanId` only at the
   approved write points and shows a shell notice when restore-context reads or
   validation fail.
@@ -29,6 +32,10 @@ and restore-context failure handling were still manual or implicit.
 - The shell now deduplicates replayed terminal events and repeated backend
   snapshots by an operation-aware key so a completed scan or duplicate-analysis
   snapshot does not keep resetting local review state.
+- `N1_START_SCAN` now tracks accepted-start and running-snapshot phases
+  separately so a later matching running snapshot can restore `Scan` once after
+  manual navigation away, while a stale accepted command response does not
+  override that fresher event-owned state.
 - Startup still does not cold-start `Duplicates` or `Cleanup` from prior review
   state alone, but it now hydrates a durably persisted completed
   duplicate-analysis result for the currently loaded scan so cleanup preview

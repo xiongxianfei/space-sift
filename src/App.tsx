@@ -76,7 +76,9 @@ type OpenStoredScanOptions = {
   nextNotice?: string;
   preservedDuplicateStatusSnapshot?: DuplicateStatusSnapshot;
   persistWorkspace?: WorkspaceTab;
+  persistRestoreContext?: boolean;
 };
+type WorkspaceSwitchPhase = "default" | "accepted" | "running";
 
 function formatBytes(bytes: number) {
   return `${bytes} bytes`;
@@ -141,8 +143,9 @@ function buildWorkspaceSwitchKey(
   reason: WorkspaceNavigationReason,
   target: WorkspaceTab,
   operationId?: string | null,
+  phase: WorkspaceSwitchPhase = "default",
 ) {
-  return `${reason}:${target}:${operationId ?? "none"}`;
+  return `${reason}:${target}:${phase}:${operationId ?? "none"}`;
 }
 
 function getPathLabel(path: string) {
@@ -527,13 +530,23 @@ function App({ client = unsupportedClient }: AppProps) {
       target: WorkspaceTab,
       reason: Exclude<WorkspaceNavigationReason, "manual" | "startup">,
       operationId?: string | null,
+      options?: {
+        phase?: WorkspaceSwitchPhase;
+        blockedByKeys?: string[];
+      },
     ) => {
-      const key = buildWorkspaceSwitchKey(reason, target, operationId);
-      if (appliedWorkspaceSwitchesRef.current.has(key)) {
+      const phase = options?.phase ?? "default";
+      const key = buildWorkspaceSwitchKey(reason, target, operationId, phase);
+      const isBlocked =
+        options?.blockedByKeys?.some((blockedKey) =>
+          appliedWorkspaceSwitchesRef.current.has(blockedKey),
+        ) ?? false;
+      if (isBlocked || appliedWorkspaceSwitchesRef.current.has(key)) {
         workspaceShellLogger.log("workspace_auto_switch_skipped_duplicate", {
           reason,
           target,
           operationId: operationId ?? null,
+          phase,
         });
         return false;
       }
@@ -545,6 +558,7 @@ function App({ client = unsupportedClient }: AppProps) {
         reason,
         target,
         operationId: operationId ?? null,
+        phase,
       });
       return true;
     },
@@ -684,10 +698,12 @@ function App({ client = unsupportedClient }: AppProps) {
       });
 
       lastOpenedScanIdRef.current = result.scanId;
-      void persistWorkspaceRestoreContext(
-        options?.persistWorkspace ?? activeWorkspace,
-        result.scanId,
-      );
+      if (options?.persistRestoreContext !== false) {
+        void persistWorkspaceRestoreContext(
+          options?.persistWorkspace ?? activeWorkspace,
+          result.scanId,
+        );
+      }
       return result;
     },
   );
@@ -725,10 +741,15 @@ function App({ client = unsupportedClient }: AppProps) {
         snapshot.rootPath &&
         snapshot.rootPath === pendingScanStartRef.current.rootPath) ||
         appliedWorkspaceSwitchesRef.current.has(
-          buildWorkspaceSwitchKey("N1_START_SCAN", "scan", snapshot.scanId),
+          buildWorkspaceSwitchKey("N1_START_SCAN", "scan", snapshot.scanId, "accepted"),
+        ) ||
+        appliedWorkspaceSwitchesRef.current.has(
+          buildWorkspaceSwitchKey("N1_START_SCAN", "scan", snapshot.scanId, "running"),
         ))
     ) {
-      applyContractualWorkspaceSwitch("scan", "N1_START_SCAN", snapshot.scanId);
+      applyContractualWorkspaceSwitch("scan", "N1_START_SCAN", snapshot.scanId, {
+        phase: "running",
+      });
     }
 
     if (snapshot.state === "completed" && snapshot.completedScanId) {
@@ -745,6 +766,7 @@ function App({ client = unsupportedClient }: AppProps) {
           reason: "N2_SCAN_COMPLETED_AND_OPENED",
           target: "explorer",
           operationId,
+          phase: "default",
         });
         return;
       }
@@ -877,6 +899,8 @@ function App({ client = unsupportedClient }: AppProps) {
           lastOpenedScanIdRef.current = restoreContext?.lastOpenedScanId ?? null;
         } else {
           startupNotice = "Saved workspace context could not be read. Opening Overview instead.";
+          workspaceRestoreContextRef.current = null;
+          lastOpenedScanIdRef.current = null;
           workspaceShellLogger.log("workspace_restore_context_load_failed", {
             message: describeError(restoreContextResult.error),
           });
@@ -888,6 +912,8 @@ function App({ client = unsupportedClient }: AppProps) {
           } catch (error) {
             startupNotice =
               "Saved Explorer context could not be restored. Opening Overview instead.";
+            workspaceRestoreContextRef.current = null;
+            lastOpenedScanIdRef.current = null;
             workspaceShellLogger.log("workspace_restore_context_validation_failed", {
               lastOpenedScanId: restoreContext.lastOpenedScanId,
               message: describeError(error),
@@ -934,8 +960,7 @@ function App({ client = unsupportedClient }: AppProps) {
           applyOpenedScanResult(startupLoadedScan, {
             nextNotice: `Loaded ${startupLoadedScan.scanId} from local history.`,
             preservedDuplicateStatusSnapshot: initialDuplicateStatus,
-            persistWorkspace:
-              restoreContext?.lastWorkspace === "explorer" ? "explorer" : startupWorkspace,
+            persistRestoreContext: false,
           });
 
           if (
@@ -1010,7 +1035,12 @@ function App({ client = unsupportedClient }: AppProps) {
         });
         setNotice((currentValue) => currentValue ?? `Scanning ${normalizedRoot}`);
       });
-      applyContractualWorkspaceSwitch("scan", "N1_START_SCAN", started.scanId);
+      applyContractualWorkspaceSwitch("scan", "N1_START_SCAN", started.scanId, {
+        phase: "accepted",
+        blockedByKeys: [
+          buildWorkspaceSwitchKey("N1_START_SCAN", "scan", started.scanId, "running"),
+        ],
+      });
       void loadScanRuns();
     } catch (error) {
       pendingScanStartRef.current = null;

@@ -858,6 +858,42 @@ describe("Space Sift workspace navigation shell", () => {
     });
   });
 
+  it("manual_workspace_activation_during_startup_does_not_get_overwritten_in_restore_context", async () => {
+    const client = createWorkspaceClient({
+      scanStatus: makeCompletedStatus(),
+      scan: makeBrowseableScan(),
+      restoreContext: makeWorkspaceRestoreContext("explorer", "scan-shell"),
+    });
+    const openDeferred = defer<CompletedScan>();
+    client.openScanHistory = vi.fn(async () => openDeferred.promise);
+
+    render(<App client={client} />);
+    await waitForWorkspaceShell();
+
+    await waitFor(() => {
+      expect(client.openScanHistory).toHaveBeenCalledWith("scan-shell");
+    });
+
+    await activateWorkspace("History");
+
+    await act(async () => {
+      openDeferred.resolve(makeBrowseableScan());
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "History" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+
+    expect(client.saveWorkspaceRestoreContext).toHaveBeenCalledTimes(1);
+    expect(client.saveWorkspaceRestoreContext).toHaveBeenCalledWith({
+      lastWorkspace: "history",
+      lastOpenedScanId: "scan-shell",
+    });
+  });
+
   it("initial_workspace_restores_summary_only_explorer_context_in_degraded_mode", async () => {
     render(
       <App
@@ -939,6 +975,7 @@ describe("Space Sift workspace navigation shell", () => {
       expect(logger).toHaveBeenCalledWith(
         "workspace_auto_switch_applied",
         expect.objectContaining({
+          phase: "running",
           reason: "N1_START_SCAN",
           operationId: "scan-running",
           target: "scan",
@@ -947,6 +984,7 @@ describe("Space Sift workspace navigation shell", () => {
       expect(logger).toHaveBeenCalledWith(
         "workspace_auto_switch_skipped_duplicate",
         expect.objectContaining({
+          phase: "accepted",
           reason: "N1_START_SCAN",
           operationId: "scan-running",
           target: "scan",
@@ -955,6 +993,41 @@ describe("Space Sift workspace navigation shell", () => {
     });
 
     logger.mockRestore();
+  });
+
+  it("N1_START_SCAN_matching_running_snapshot_can_switch_once_after_accepted_start", async () => {
+    const harness = createWorkspaceHarness();
+    harness.client.startScan = vi.fn(async () => ({ scanId: "scan-running" }));
+
+    render(<App client={harness.client} />);
+    await waitForWorkspaceShell();
+    await activateWorkspace("Scan");
+
+    fireEvent.change(screen.getByLabelText(/scan root/i), {
+      target: { value: "C:\\Users\\xiongxianfei\\Downloads" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /start scan/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Scan" })).toHaveAttribute("aria-selected", "true");
+    });
+
+    await activateWorkspace("History");
+    await harness.emitScan(makeRunningStatus());
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Scan" })).toHaveAttribute("aria-selected", "true");
+    });
+
+    await activateWorkspace("History");
+    await harness.emitScan(makeRunningStatus());
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "History" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
   });
 
   it("N2_SCAN_COMPLETED_AND_OPENED_switches_to_explorer_after_persistence_and_open", async () => {

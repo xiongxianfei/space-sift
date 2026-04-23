@@ -316,8 +316,10 @@ them.
 - 2026-04-22: `M2` keeps contractual auto-switch behavior out of scope; explicit history reopen and scan-completion flows still require manual `Explorer` navigation until `M3` implements `N2` and `N3`.
 - 2026-04-22: After the `M2` review found stale proof-surface metadata, the workspace-navigation test spec was normalized to `approved` so the governing artifact state matches the implemented milestone state.
 - 2026-04-23: `M3` uses operation-aware shell switch keys composed from navigation reason, workspace target, and operation id so replayed terminal snapshots do not keep stealing focus or resetting review state.
+- 2026-04-23: Startup restore replay is read-only with respect to workspace persistence. It may validate and load durable state, but it does not rewrite `lastWorkspace`; only later manual activation or post-startup contractual switching persists that field.
 - 2026-04-23: `M3` preserves durable completed duplicate-analysis hydration for the currently loaded scan during startup, but it still does not cold-start the `Duplicates` workspace from prior review state alone.
 - 2026-04-23: Manual workspace activation during startup wins over the late startup resolver so a user click is not overwritten by async restore-context validation.
+- 2026-04-23: `N1_START_SCAN` now tracks accepted-start and running-snapshot phases separately so a later matching running snapshot can restore `Scan` once, while a stale accepted response cannot override a fresher running event.
 
 ## Surprises and discoveries
 
@@ -371,6 +373,15 @@ them.
   - first run failed with `src/App.tsx(752,49): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'`
   - rerun after capturing `completedScanId` before the async `openStoredScan(...)` handoff passed
 - not applicable for `M3`: `cargo test --manifest-path src-tauri/Cargo.toml -p app-db workspace_restore_context` and `cargo check --manifest-path src-tauri/Cargo.toml` because this milestone stayed in `src/` and did not change `src-tauri/`
+- Post-`M3` code-review resolution:
+  - `npm run test -- src/workspace-navigation.test.tsx`
+    - passed: `29 passed; 0 failed`
+  - `npm run lint`
+    - passed
+  - `npm run test`
+    - passed: `7 files, 66 tests`
+  - `npm run build`
+    - passed
 
 ## Outcome and retrospective
 
