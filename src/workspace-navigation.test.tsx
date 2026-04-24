@@ -814,12 +814,14 @@ describe("Space Sift workspace navigation shell", () => {
     await waitForWorkspaceShell();
 
     const metrics = screen.getByRole("region", { name: /overview metrics/i });
-    expect(within(metrics).getByRole("article", { name: /total bytes metric/i })).toHaveTextContent(
-      /4096 bytes/i,
-    );
-    expect(within(metrics).getByRole("article", { name: /total files metric/i })).toHaveTextContent(
-      /^total files\s*3/i,
-    );
+    await waitFor(() => {
+      expect(within(metrics).getByRole("article", { name: /total bytes metric/i })).toHaveTextContent(
+        /4096 bytes/i,
+      );
+      expect(within(metrics).getByRole("article", { name: /total files metric/i })).toHaveTextContent(
+        /^total files\s*3/i,
+      );
+    });
   });
 
   it("scan_panel_groups_command_progress_and_running_context", async () => {
@@ -834,9 +836,11 @@ describe("Space Sift workspace navigation shell", () => {
     expect(within(commandRegion).getByLabelText(/scan root/i)).toBeInTheDocument();
     expect(within(commandRegion).getByRole("button", { name: /start scan/i })).toBeInTheDocument();
     expect(within(commandRegion).getByRole("button", { name: /cancel scan/i })).toBeInTheDocument();
-    expect(within(commandRegion).getByText(/running/i)).toBeInTheDocument();
-    expect(within(commandRegion).getByText(/2048 bytes processed/i)).toBeInTheDocument();
-    expect(within(commandRegion).getByText(/c:\\users\\xiongxianfei\\downloads/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(commandRegion).getByText(/running/i)).toBeInTheDocument();
+      expect(within(commandRegion).getByText(/2048 bytes processed/i)).toBeInTheDocument();
+      expect(within(commandRegion).getByText(/c:\\users\\xiongxianfei\\downloads/i)).toBeInTheDocument();
+    });
 
     expect(within(scanPanel).getByRole("region", { name: /active scan details/i })).toBeInTheDocument();
   });
