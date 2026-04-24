@@ -9,13 +9,7 @@ This file tracks active, blocked, done, and superseded plans.
 - none currently
 
 ## Active
-- [2026-04-24-space-sift-ui-design-fidelity.md](plans/2026-04-24-space-sift-ui-design-fidelity.md)
-  - status: active
-  - scope: align the shipped workspace UI with the uploaded `docs/ui` design
-    structure, responsive breakpoints, panel hierarchy, duplicate-review cards,
-    cleanup funnel, and visual verification contract without changing backend
-    behavior
-  - next: hand M4 to code review before closing the initiative as done
+- none currently
 ## Blocked
 - [2026-04-16-history-and-duplicate-review-clarity.md](plans/2026-04-16-history-and-duplicate-review-clarity.md)
   - status: blocked
@@ -42,6 +36,12 @@ This file tracks active, blocked, done, and superseded plans.
     acceptance
 
 ## Done
+- [2026-04-24-space-sift-ui-design-fidelity.md](plans/2026-04-24-space-sift-ui-design-fidelity.md)
+  - status: done
+  - scope: aligned the shipped workspace UI with the uploaded `docs/ui` design
+    structure, responsive breakpoints, panel hierarchy, duplicate-review cards,
+    cleanup funnel, and visual verification contract without changing backend
+    behavior
 - [2026-04-22-space-sift-workspace-navigation-ui.md](plans/2026-04-22-space-sift-workspace-navigation-ui.md)
   - status: done
   - scope: introduced the workspace shell, startup restoration, contractual auto-switches, and shell-level global status for the advanced UI initiative without silently replacing active UI contracts

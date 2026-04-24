@@ -2,7 +2,7 @@
 
 ## Status
 
-active
+done
 
 ## Purpose / big picture
 
@@ -603,6 +603,14 @@ release automation.
   - important coverage: `npm ci`, `npm run lint`, `npm run test`,
     `npm run build`, and `cargo check --manifest-path src-tauri/Cargo.toml`
     completed
+- 2026-04-24: final verification and PR-prep lifecycle closeout
+  - M4 code review completed clean-with-notes
+  - final verify blocker from stale lifecycle text was resolved by updating
+    `docs/plan.md` and this plan body
+  - unrelated dirty plan edits were isolated into stash
+    `stash@{0}: On main: isolate unrelated pre-existing plan and cargo line-ending changes`
+  - `git diff --check -- docs/changes/2026-04-24-ui-design-fidelity-m4/explain-change.md docs/plan.md docs/plans/2026-04-24-space-sift-ui-design-fidelity.md`
+    passed with only CRLF conversion warnings
 
 ## Outcome and retrospective
 
@@ -631,8 +639,10 @@ release automation.
 
 ## Readiness
 
-This plan is active. M4 is implemented and ready for code review.
+This plan is `done`. M1 through M4, code review, branch-wide local
+verification, lifecycle closeout, and explanation are complete.
 
 Branch-wide local verification passed through the canonical CI-parity command,
-including frontend and Rust checks. The initiative should remain active until
-M4 code review is complete.
+including frontend and Rust checks. The UI design-fidelity initiative is ready
+for PR preparation. Future contract changes should use a new or superseding
+plan instead of reopening this one silently.
