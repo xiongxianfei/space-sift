@@ -1,0 +1,18 @@
+change_id: 2026-04-24-ui-design-fidelity-m1
+title: Align workspace shell layout with design prototype
+status: implemented
+implemented_on: 2026-04-24
+plan: docs/plans/2026-04-24-space-sift-ui-design-fidelity.md
+spec: specs/space-sift-ui-design-fidelity.md
+test_spec: specs/space-sift-ui-design-fidelity.test.md
+summary:
+  - Replace the hero-plus-card workspace shell with a prototype-aligned topbar, left workspace rail, right active workspace content area, and shell-level global status placement.
+  - Add M1 workspace shell tests for persistent header, rail navigation, active content containment, and the `1050px` / `640px` responsive breakpoint contract.
+  - Remove the prototype-only bridge-connected pill until bridge capability state is modeled truthfully, and add direct DOM availability proof at `1280`, `900`, and `560` CSS-pixel widths.
+  - Preserve existing workspace-navigation behavior, shell next-safe-action semantics, frontend-backend contracts, and safety-copy boundaries.
+validation:
+  - npm run test -- src/workspace-navigation.test.tsx
+  - npm run lint
+  - npm run test
+  - npm run build
+blockers: []

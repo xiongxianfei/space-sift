@@ -1,0 +1,20 @@
+change_id: 2026-04-24-ui-design-fidelity-m3
+title: Align duplicate cleanup and safety panels with design
+status: implemented
+implemented_on: 2026-04-24
+plan: docs/plans/2026-04-24-space-sift-ui-design-fidelity.md
+spec: specs/space-sift-ui-design-fidelity.md
+test_spec: specs/space-sift-ui-design-fidelity.test.md
+summary:
+  - Add explicit duplicate analysis controls, status, delete summary, and verified duplicate review regions.
+  - Stage Cleanup into source selection, preview review, validation issues, Recycle Bin action, and advanced permanent-delete regions.
+  - Keep Safety guidance truthful and durable around unprivileged operation, Recycle Bin priority, local SQLite storage, protected paths, permanent delete, and can_resume actionability.
+validation:
+  - npm run test -- src/duplicates.test.tsx
+  - npm run test -- src/cleanup.test.tsx
+  - npm run test -- src/workspace-navigation.test.tsx
+  - npm run lint
+  - npm run test
+  - npm run build
+  - git diff --check -- src\App.tsx src\App.css src\duplicates.test.tsx src\cleanup.test.tsx src\workspace-navigation.test.tsx docs\plan.md docs\plans\2026-04-24-space-sift-ui-design-fidelity.md docs\changes\2026-04-24-ui-design-fidelity-m3\change.yaml docs\changes\2026-04-24-ui-design-fidelity-m3\explain-change.md
+blockers: []

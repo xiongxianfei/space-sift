@@ -1,0 +1,20 @@
+change_id: 2026-04-24-ui-design-fidelity-m2
+title: Align scan review panels with design prototype
+status: implemented
+implemented_on: 2026-04-24
+plan: docs/plans/2026-04-24-space-sift-ui-design-fidelity.md
+spec: specs/space-sift-ui-design-fidelity.md
+test_spec: specs/space-sift-ui-design-fidelity.test.md
+summary:
+  - Add truthful Overview metric cards for total bytes, total files, duplicate reclaimable bytes, and cleanup candidate count.
+  - Add accessible panel regions for Scan command/progress, active scan details, completed scan history, interrupted-run continuity, read-only Explorer browsing, and summary-only compatibility.
+  - Preserve existing scan, history, Explorer handoff, resume actionability, shell status, and next-safe-action behavior.
+validation:
+  - npm run test -- src/workspace-navigation.test.tsx
+  - npm run test -- src/scan-history.test.tsx
+  - npm run test -- src/results-explorer.test.tsx
+  - npm run lint
+  - npm run test
+  - npm run build
+  - git diff --check -- src\App.tsx src\App.css src\workspace-navigation.test.tsx src\scan-history.test.tsx src\results-explorer.test.tsx
+blockers: []

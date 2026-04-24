@@ -52,8 +52,20 @@ const safetyPrinciples = [
     body: "Cleanup defaults to the Recycle Bin path, with permanent delete kept behind an explicit advanced control.",
   },
   {
-    title: "Local-only history",
-    body: "Completed scans are cached in local SQLite storage so reopening a result never needs a network connection.",
+    title: "Local SQLite history",
+    body: "Completed scans stay local-only in local SQLite storage so reopening a result never needs a network connection.",
+  },
+  {
+    title: "Protected paths fail closed",
+    body: "Protected-path cleanup stays outside the unprivileged desktop flow until a separate capability is explicitly available.",
+  },
+  {
+    title: "Explicit destructive actions",
+    body: "Permanent delete remains physically separated from the safe cleanup path and requires an advanced confirmation.",
+  },
+  {
+    title: "Resume actionability",
+    body: "Resume actions use can_resume as the source of truth, so stored resume metadata alone never makes a run actionable.",
   },
 ];
 
@@ -605,7 +617,17 @@ function App({ client = unsupportedClient }: AppProps) {
         event.preventDefault();
         focusWorkspaceAtIndex((currentIndex + 1) % workspaceDefinitions.length);
         return;
+      case "ArrowDown":
+        event.preventDefault();
+        focusWorkspaceAtIndex((currentIndex + 1) % workspaceDefinitions.length);
+        return;
       case "ArrowLeft":
+        event.preventDefault();
+        focusWorkspaceAtIndex(
+          (currentIndex - 1 + workspaceDefinitions.length) % workspaceDefinitions.length,
+        );
+        return;
+      case "ArrowUp":
         event.preventDefault();
         focusWorkspaceAtIndex(
           (currentIndex - 1 + workspaceDefinitions.length) % workspaceDefinitions.length,
@@ -1550,6 +1572,49 @@ function App({ client = unsupportedClient }: AppProps) {
           </p>
         </div>
 
+        <section
+          className="overview-metrics result-summary"
+          role="region"
+          aria-label="Overview metrics"
+        >
+          <article className="summary-card metric-card" aria-label="Total bytes metric">
+            <span>Total bytes</span>
+            <strong>{currentScan ? formatBytes(currentScan.totalBytes) : "Not yet run"}</strong>
+            <p className="current-path">
+              {currentScan ? currentScan.scanId : "Start a scan or reopen local history."}
+            </p>
+          </article>
+          <article className="summary-card metric-card" aria-label="Total files metric">
+            <span>Total files</span>
+            <strong>{currentScan ? currentScan.totalFiles : "Not yet run"}</strong>
+            <p className="current-path">
+              {currentScan ? `${currentScan.totalDirectories} directories tracked` : "No scan result loaded."}
+            </p>
+          </article>
+          <article className="summary-card metric-card" aria-label="Duplicate reclaimable metric">
+            <span>Duplicate reclaimable</span>
+            <strong>
+              {duplicateAnalysis ? formatBytes(duplicatePreview.reclaimableBytes) : "Not analyzed"}
+            </strong>
+            <p className="current-path">
+              {duplicateAnalysis
+                ? `${duplicatePreview.filesMarkedForDeletion} files marked after keep selection.`
+                : "Run duplicate analysis after loading a scan."}
+            </p>
+          </article>
+          <article className="summary-card metric-card" aria-label="Cleanup candidates metric">
+            <span>Cleanup candidates</span>
+            <strong>
+              {cleanupPreview ? cleanupPreview.candidates.length : "Preview not generated"}
+            </strong>
+            <p className="current-path">
+              {cleanupPreview
+                ? `${formatBytes(cleanupPreview.totalBytes)} pending preview review.`
+                : "Generate a cleanup preview before execution."}
+            </p>
+          </article>
+        </section>
+
         <div className="result-summary">
           <article className="summary-card">
             <span>Global state</span>
@@ -1662,7 +1727,11 @@ function App({ client = unsupportedClient }: AppProps) {
           </p>
         </div>
 
-        <section className="result-card">
+        <section
+          className="result-card scan-command-card"
+          role="region"
+          aria-label="Scan command and progress"
+        >
           <div className="panel-header compact-header">
             <h3>Scan workspace</h3>
             <p>
@@ -1703,6 +1772,10 @@ function App({ client = unsupportedClient }: AppProps) {
             </div>
           </form>
 
+          <p className="current-path scan-command-context">
+            Active root: {activeScanRoot}
+          </p>
+
           <div className="status-strip" aria-live="polite">
             <div>
               <span className="status-label">State</span>
@@ -1724,7 +1797,12 @@ function App({ client = unsupportedClient }: AppProps) {
         </section>
 
         {isScanRunning ? (
-          <section className="result-card active-scan-panel" aria-live="polite">
+          <section
+            className="result-card active-scan-panel"
+            role="region"
+            aria-label="Active scan details"
+            aria-live="polite"
+          >
             <div className="panel-header compact-header">
               <h3>Active scan</h3>
               <p>
@@ -1820,7 +1898,7 @@ function App({ client = unsupportedClient }: AppProps) {
           </p>
         </div>
 
-        <section className="result-card">
+        <section className="result-card" role="region" aria-label="Completed scan history">
           <div className="panel-header compact-header">
             <h3>Recent scans</h3>
             <p>Completed scan results stay local so you can reopen them without rescanning.</p>
@@ -1893,7 +1971,7 @@ function App({ client = unsupportedClient }: AppProps) {
           )}
         </section>
 
-        <section className="result-card">
+        <section className="result-card" role="region" aria-label="Interrupted run continuity">
           <div className="panel-header compact-header">
             <h3>Interrupted runs</h3>
             <p>Recovered runs stay visible until you resume them or cancel them.</p>
@@ -1985,7 +2063,11 @@ function App({ client = unsupportedClient }: AppProps) {
 
               {browseableScan && resolvedExplorerPath ? (
                 <div className="explorer-grid">
-                  <section className="result-card explorer-card">
+                  <section
+                    className="result-card explorer-card"
+                    role="region"
+                    aria-label="Read-only browseable result"
+                  >
                     <div className="explorer-header">
                       <div>
                         <h3>Results explorer</h3>
@@ -2120,10 +2202,16 @@ function App({ client = unsupportedClient }: AppProps) {
                   </section>
                 </div>
               ) : (
-                <p className="notice-banner compatibility-note">
-                  This saved result was saved before folder browsing support. Run a fresh
-                  scan to browse folders again.
-                </p>
+                <section
+                  className="notice-banner compatibility-note"
+                  role="region"
+                  aria-label="Summary-only scan compatibility"
+                >
+                  <p>
+                    This saved result was saved before folder browsing support. Run a fresh
+                    scan to browse folders again.
+                  </p>
+                </section>
               )}
             </section>
 
@@ -2220,10 +2308,14 @@ function App({ client = unsupportedClient }: AppProps) {
             </p>
           ) : (
             <div className="duplicate-layout">
-              <div className="duplicate-toolbar">
+              <section
+                className="duplicate-toolbar"
+                role="region"
+                aria-label="Duplicate analysis controls"
+              >
                 <div>
-                  <span className="status-label">Analysis state</span>
-                  <p className="current-path">{duplicateStatus.state}</p>
+                  <span className="status-label">Loaded scan</span>
+                  <p className="current-path">{currentScan.scanId}</p>
                 </div>
                 <div className="action-row">
                   <button
@@ -2244,18 +2336,42 @@ function App({ client = unsupportedClient }: AppProps) {
                     </button>
                   ) : null}
                 </div>
-              </div>
+              </section>
 
-              {duplicateStatus.state === "running" ? (
-                <div className="duplicate-progress" aria-live="polite">
-                  <span>{getDuplicateStageLabel(duplicateStatus.stage)}</span>
-                  <strong>{duplicateStatus.itemsProcessed} items processed</strong>
+              <section
+                className="duplicate-progress duplicate-status-stage"
+                role="region"
+                aria-label="Duplicate analysis status"
+                aria-live="polite"
+              >
+                <div>
+                  <span className="status-label">Analysis state</span>
+                  <p className="current-path">{duplicateStatus.state}</p>
                 </div>
-              ) : null}
+                <div>
+                  <span className="status-label">Progress</span>
+                  {duplicateStatus.state === "running" ? (
+                    <>
+                      <span>{getDuplicateStageLabel(duplicateStatus.stage)}</span>
+                      <strong>{duplicateStatus.itemsProcessed} items processed</strong>
+                    </>
+                  ) : (
+                    <strong>
+                      {duplicateStatus.completedAnalysisId
+                        ? `${duplicateStatus.groupsEmitted} groups emitted`
+                        : "No active analysis"}
+                    </strong>
+                  )}
+                </div>
+              </section>
 
               {duplicateAnalysis ? (
                 <>
-                  <div className="duplicate-summary-grid">
+                  <section
+                    className="duplicate-summary-grid"
+                    role="region"
+                    aria-label="Duplicate delete summary"
+                  >
                     <article className="summary-card">
                       <span>Duplicate groups</span>
                       <strong>{duplicateAnalysis.groups.length} duplicate groups</strong>
@@ -2271,14 +2387,15 @@ function App({ client = unsupportedClient }: AppProps) {
                       <span>Reclaimable bytes</span>
                       <strong>{formatBytes(duplicatePreview.reclaimableBytes)}</strong>
                     </article>
-                  </div>
+                  </section>
 
-                  {duplicateAnalysis.groups.length === 0 ? (
-                    <p className="empty-state">
-                      No fully verified duplicate groups remain in this scan result.
-                    </p>
-                  ) : (
-                    <div className="duplicate-groups" role="list" aria-label="Duplicate groups">
+                  <section role="region" aria-label="Verified duplicate review">
+                    {duplicateAnalysis.groups.length === 0 ? (
+                      <p className="empty-state">
+                        No fully verified duplicate groups remain in this scan result.
+                      </p>
+                    ) : (
+                      <div className="duplicate-groups" role="list" aria-label="Duplicate groups">
                       {orderedDuplicateGroups.map((group) => {
                         const keptPath = resolveKeptPath(group, duplicateKeepSelections);
                         const newestPath = chooseMemberByAge(group.members, "newest");
@@ -2374,8 +2491,9 @@ function App({ client = unsupportedClient }: AppProps) {
                           </article>
                         );
                       })}
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </section>
 
                   {duplicateAnalysis.issues.length > 0 ? (
                     <section className="duplicate-issues">
@@ -2446,115 +2564,131 @@ function App({ client = unsupportedClient }: AppProps) {
             </p>
           ) : (
             <div className="cleanup-layout">
-              <div className="cleanup-source-grid">
-                <article className="summary-card">
-                  <span>Duplicate delete candidates</span>
-                  <strong>{duplicateDeletePaths.length}</strong>
-                </article>
-                <article className="summary-card">
-                  <span>Enabled cleanup rules</span>
-                  <strong>{selectedCleanupRuleIds.length}</strong>
-                </article>
-              </div>
+              <section
+                className="cleanup-funnel-stage"
+                role="region"
+                aria-label="Cleanup source selection"
+              >
+                <div className="cleanup-source-grid">
+                  <article className="summary-card">
+                    <span>Duplicate delete candidates</span>
+                    <strong>{duplicateDeletePaths.length}</strong>
+                  </article>
+                  <article className="summary-card">
+                    <span>Enabled cleanup rules</span>
+                    <strong>{selectedCleanupRuleIds.length}</strong>
+                  </article>
+                </div>
 
-              {cleanupRules.length > 0 ? (
-                <fieldset className="cleanup-rules">
-                  <legend>Built-in cleanup rules</legend>
-                  {cleanupRules.map((rule) => {
-                    const checked = selectedCleanupRuleIds.includes(rule.ruleId);
-                    const visibleRuleLabel =
-                      rule.ruleId === "temp-folder-files"
-                        ? "Temp folder rule"
-                        : rule.ruleId === "download-partials"
-                          ? "Partial download rule"
-                          : rule.label;
-                    return (
-                      <label className="cleanup-rule-option" key={rule.ruleId}>
-                        <input
-                          type="checkbox"
-                          aria-label={rule.label}
-                          checked={checked}
-                          onChange={() => handleToggleCleanupRule(rule.ruleId)}
-                        />
-                        <span>
-                          <strong>{visibleRuleLabel}</strong>
-                          <small>{rule.description}</small>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </fieldset>
-              ) : (
-                <p className="empty-state">No cleanup rules are available in this build.</p>
-              )}
+                {cleanupRules.length > 0 ? (
+                  <fieldset className="cleanup-rules">
+                    <legend>Built-in cleanup rules</legend>
+                    {cleanupRules.map((rule) => {
+                      const checked = selectedCleanupRuleIds.includes(rule.ruleId);
+                      const visibleRuleLabel =
+                        rule.ruleId === "temp-folder-files"
+                          ? "Temp folder rule"
+                          : rule.ruleId === "download-partials"
+                            ? "Partial download rule"
+                            : rule.label;
+                      return (
+                        <label className="cleanup-rule-option" key={rule.ruleId}>
+                          <input
+                            type="checkbox"
+                            aria-label={rule.label}
+                            checked={checked}
+                            onChange={() => handleToggleCleanupRule(rule.ruleId)}
+                          />
+                          <span>
+                            <strong>{visibleRuleLabel}</strong>
+                            <small>{rule.description}</small>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </fieldset>
+                ) : (
+                  <p className="empty-state">No cleanup rules are available in this build.</p>
+                )}
 
-              <div className="action-row">
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={() => void handleRefreshCleanupPreview()}
-                >
-                  Refresh cleanup preview
-                </button>
-              </div>
+                <div className="action-row">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => void handleRefreshCleanupPreview()}
+                  >
+                    Refresh cleanup preview
+                  </button>
+                </div>
+              </section>
 
               {cleanupPreview ? (
                 <>
-                  <div className="duplicate-summary-grid">
-                    <article className="summary-card">
-                      <span>Preview</span>
-                      <strong>{cleanupPreview.candidates.length} cleanup candidates</strong>
-                    </article>
-                    <article className="summary-card">
-                      <span>Reclaimable bytes</span>
-                      <strong>{formatBytes(cleanupPreview.totalBytes)}</strong>
-                    </article>
-                    <article className="summary-card">
-                      <span>Sources</span>
-                      <strong>
-                        {cleanupPreview.duplicateCandidateCount} duplicate /{" "}
-                        {cleanupPreview.ruleCandidateCount} rule
-                      </strong>
-                    </article>
-                  </div>
-
-                  {cleanupPreview.candidates.length === 0 ? (
-                    <p className="empty-state">
-                      No valid cleanup candidates remain after validation.
-                    </p>
-                  ) : (
-                    <div
-                      className="cleanup-candidates"
-                      role="list"
-                      aria-label="Cleanup candidates"
-                    >
-                      {cleanupPreview.candidates.map((candidate) => (
-                        <article
-                          className="cleanup-candidate"
-                          key={candidate.actionId}
-                          role="listitem"
-                        >
-                          <div className="cleanup-candidate-meta">
-                            <strong>{candidate.path}</strong>
-                            <span>{formatBytes(candidate.sizeBytes)}</span>
-                          </div>
-                          <div className="cleanup-source-tags">
-                            {candidate.sourceLabels.map((label) => (
-                              <span
-                                className="selection-pill is-delete"
-                                key={`${candidate.actionId}-${label}`}
-                              >
-                                {label}
-                              </span>
-                            ))}
-                          </div>
-                        </article>
-                      ))}
+                  <section
+                    className="cleanup-funnel-stage"
+                    role="region"
+                    aria-label="Cleanup preview review"
+                  >
+                    <div className="duplicate-summary-grid">
+                      <article className="summary-card">
+                        <span>Preview</span>
+                        <strong>{cleanupPreview.candidates.length} cleanup candidates</strong>
+                      </article>
+                      <article className="summary-card">
+                        <span>Reclaimable bytes</span>
+                        <strong>{formatBytes(cleanupPreview.totalBytes)}</strong>
+                      </article>
+                      <article className="summary-card">
+                        <span>Sources</span>
+                        <strong>
+                          {cleanupPreview.duplicateCandidateCount} duplicate /{" "}
+                          {cleanupPreview.ruleCandidateCount} rule
+                        </strong>
+                      </article>
                     </div>
-                  )}
+
+                    {cleanupPreview.candidates.length === 0 ? (
+                      <p className="empty-state">
+                        No valid cleanup candidates remain after validation.
+                      </p>
+                    ) : (
+                      <div
+                        className="cleanup-candidates"
+                        role="list"
+                        aria-label="Cleanup candidates"
+                      >
+                        {cleanupPreview.candidates.map((candidate) => (
+                          <article
+                            className="cleanup-candidate"
+                            key={candidate.actionId}
+                            role="listitem"
+                          >
+                            <div className="cleanup-candidate-meta">
+                              <strong>{candidate.path}</strong>
+                              <span>{formatBytes(candidate.sizeBytes)}</span>
+                            </div>
+                            <div className="cleanup-source-tags">
+                              {candidate.sourceLabels.map((label) => (
+                                <span
+                                  className="selection-pill is-delete"
+                                  key={`${candidate.actionId}-${label}`}
+                                >
+                                  {label}
+                                </span>
+                              ))}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </section>
 
                   {cleanupPreview.issues.length > 0 ? (
-                    <section className="duplicate-issues">
+                    <section
+                      className="duplicate-issues cleanup-funnel-stage"
+                      role="region"
+                      aria-label="Cleanup validation issues"
+                    >
                       <h4>Excluded cleanup paths</h4>
                       <ul>
                         {cleanupPreview.issues.map((issue) => (
@@ -2567,7 +2701,11 @@ function App({ client = unsupportedClient }: AppProps) {
                     </section>
                   ) : null}
 
-                  <div className="action-row cleanup-actions">
+                  <section
+                    className="action-row cleanup-actions cleanup-funnel-stage"
+                    role="region"
+                    aria-label="Recycle Bin cleanup action"
+                  >
                     <button
                       type="button"
                       className="primary-button"
@@ -2576,32 +2714,38 @@ function App({ client = unsupportedClient }: AppProps) {
                     >
                       Move selected files to Recycle Bin
                     </button>
-                  </div>
+                  </section>
 
-                  <label className="cleanup-rule-option advanced-toggle">
-                    <input
-                      type="checkbox"
-                      checked={permanentDeleteConfirmed}
-                      onChange={(event) => setPermanentDeleteConfirmed(event.target.checked)}
-                    />
-                    <span>
-                      <strong>I understand permanent delete cannot be undone</strong>
-                      <small>Use only when the Recycle Bin path is not appropriate.</small>
-                    </span>
-                  </label>
+                  <section
+                    className="cleanup-funnel-stage advanced-delete-stage"
+                    role="region"
+                    aria-label="Advanced permanent delete"
+                  >
+                    <label className="cleanup-rule-option advanced-toggle">
+                      <input
+                        type="checkbox"
+                        checked={permanentDeleteConfirmed}
+                        onChange={(event) => setPermanentDeleteConfirmed(event.target.checked)}
+                      />
+                      <span>
+                        <strong>I understand permanent delete cannot be undone</strong>
+                        <small>Use only when the Recycle Bin path is not appropriate.</small>
+                      </span>
+                    </label>
 
-                  {permanentDeleteConfirmed ? (
-                    <div className="action-row cleanup-actions">
-                      <button
-                        type="button"
-                        className="secondary-button danger-button"
-                        onClick={() => void handleExecuteCleanup("permanent")}
-                        disabled={cleanupPreview.candidates.length === 0}
-                      >
-                        Permanently delete selected files
-                      </button>
-                    </div>
-                  ) : null}
+                    {permanentDeleteConfirmed ? (
+                      <div className="action-row cleanup-actions">
+                        <button
+                          type="button"
+                          className="secondary-button danger-button"
+                          onClick={() => void handleExecuteCleanup("permanent")}
+                          disabled={cleanupPreview.candidates.length === 0}
+                        >
+                          Permanently delete selected files
+                        </button>
+                      </div>
+                    ) : null}
+                  </section>
                 </>
               ) : (
                 <p className="empty-state">
@@ -2663,7 +2807,7 @@ function App({ client = unsupportedClient }: AppProps) {
           </p>
         </div>
 
-        <section className="result-card">
+        <section className="result-card" role="region" aria-label="Safety guidance">
           <div className="panel-header compact-header">
             <h3>Safety model</h3>
             <p>Review-first cleanup stays local, explicit, and unprivileged by default.</p>
@@ -2703,97 +2847,114 @@ function App({ client = unsupportedClient }: AppProps) {
 
   return (
     <main className="shell">
-      <section className="hero">
-        <div className="eyebrow">Windows 11 results explorer, duplicates, and cleanup preview</div>
-        <h1>Space Sift</h1>
-        <p className="lede">
-          Scan a folder or drive, surface the largest space consumers, verify duplicate
-          files, preview a narrow cleanup set, and delete through a review-first desktop
-          flow instead of blind cleanup.
-        </p>
-        <div className="hero-callouts" aria-label="Current scope">
-          <span>Browseable folder drill-down</span>
-          <span>Verified duplicate groups</span>
-          <span>Recycle Bin first cleanup</span>
-        </div>
-      </section>
-
-      <section className="panel workspace-status-panel" role="region" aria-label="Global status">
-        <div className="workspace-status-layout">
-          <div className="workspace-status-copy">
-            <span className="status-label">Global status</span>
-            <h2>{globalStatus.primaryStateLabel}</h2>
-            <p className="current-path">{globalStatus.contextLabel}</p>
+      <header className="topbar" role="banner">
+        <div className="brand">
+          <div className="logo-mark" aria-hidden="true">
+            SS
           </div>
-
-          <div className="workspace-status-summary">
-            <article className="summary-card">
-              <span>Summary</span>
-              <strong>{globalStatus.summaryLabel ?? "No additional summary yet."}</strong>
-            </article>
-            <article className="summary-card">
-              <span>Active workspace</span>
-              <strong>{activeWorkspaceDefinition.label}</strong>
-              <p className="current-path">{activeWorkspaceDefinition.description}</p>
-            </article>
-          </div>
-
-          <div className="workspace-status-action">
-            {nextSafeAction ? (
-              <button
-                type="button"
-                className="primary-button"
-                onClick={handleGlobalStatusAction}
-              >
-                {nextSafeAction.label}
-              </button>
-            ) : (
-              <p className="empty-state">{globalStatus.noActionLabel}</p>
-            )}
+          <div>
+            <h1>Space Sift</h1>
+            <p className="lede">
+              A local Windows workflow for scanning space usage, reopening history,
+              reviewing duplicates, and executing cleanup only after a safe preview.
+            </p>
           </div>
         </div>
-      </section>
 
-      {shellNotices.map((entry) => (
-        <p className="notice-banner shell-banner" key={entry.key}>
-          {entry.message}
-        </p>
-      ))}
-      {errorMessage ? <p className="error-banner shell-banner">{errorMessage}</p> : null}
-
-      <section className="panel workspace-nav-panel">
-        <div className="panel-header compact-header">
-          <h2>Workspaces</h2>
-          <p>Exactly one workspace stays active at a time; manual tab selection never starts backend work by itself.</p>
+        <div className="utility" aria-label="Application safety status">
+          <span className="status-pill">Recycle Bin first</span>
+          <span className="status-pill">Local SQLite history</span>
         </div>
+      </header>
 
-        <div className="workspace-tablist" role="tablist" aria-label="Workspace navigation">
-          {workspaceDefinitions.map((definition) => {
-            const isSelected = activeWorkspace === definition.value;
+      <div className="workspace-layout">
+        <nav className="workspace-sidebar" aria-label="Workspace navigation">
+          <div className="nav-label">Workspace</div>
+          <div
+            className="workspace-tablist"
+            role="tablist"
+            aria-label="Workspace navigation"
+            aria-orientation="vertical"
+          >
+            {workspaceDefinitions.map((definition, index) => {
+              const isSelected = activeWorkspace === definition.value;
 
-            return (
-              <button
-                key={definition.value}
-                ref={(element) => setWorkspaceTabRef(definition.value, element)}
-                type="button"
-                id={`workspace-tab-${definition.value}`}
-                role="tab"
-                aria-label={definition.label}
-                aria-selected={isSelected}
-                aria-controls={`workspace-panel-${definition.value}`}
-                className={`workspace-tab ${isSelected ? "is-active" : ""}`}
-                onClick={() => activateWorkspace(definition.value)}
-                onKeyDown={(event) => handleWorkspaceKeyDown(event, definition.value)}
-              >
-                <span className="workspace-tab-label">{definition.label}</span>
-                <span className="workspace-tab-description">{definition.description}</span>
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={definition.value}
+                  ref={(element) => setWorkspaceTabRef(definition.value, element)}
+                  type="button"
+                  id={`workspace-tab-${definition.value}`}
+                  role="tab"
+                  aria-label={definition.label}
+                  aria-selected={isSelected}
+                  aria-controls={`workspace-panel-${definition.value}`}
+                  className={`workspace-tab ${isSelected ? "is-active" : ""}`}
+                  onClick={() => activateWorkspace(definition.value)}
+                  onKeyDown={(event) => handleWorkspaceKeyDown(event, definition.value)}
+                >
+                  <span className="workspace-tab-icon" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <span className="workspace-tab-copy">
+                    <span className="workspace-tab-label">{definition.label}</span>
+                    <span className="workspace-tab-description">
+                      {definition.description}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className="workspace-main" role="region" aria-label="Active workspace content">
+          <section className="panel workspace-status-panel" role="region" aria-label="Global status">
+            <div className="workspace-status-layout">
+              <div className="workspace-status-copy">
+                <span className="status-label">Global status</span>
+                <h2>{globalStatus.primaryStateLabel}</h2>
+                <p className="current-path">{globalStatus.contextLabel}</p>
+              </div>
+
+              <div className="workspace-status-summary">
+                <article className="summary-card">
+                  <span>Summary</span>
+                  <strong>{globalStatus.summaryLabel ?? "No additional summary yet."}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Active workspace</span>
+                  <strong>{activeWorkspaceDefinition.label}</strong>
+                  <p className="current-path">{activeWorkspaceDefinition.description}</p>
+                </article>
+              </div>
+
+              <div className="workspace-status-action">
+                {nextSafeAction ? (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={handleGlobalStatusAction}
+                  >
+                    {nextSafeAction.label}
+                  </button>
+                ) : (
+                  <p className="empty-state">{globalStatus.noActionLabel}</p>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {shellNotices.map((entry) => (
+            <p className="notice-banner shell-banner" key={entry.key}>
+              {entry.message}
+            </p>
+          ))}
+          {errorMessage ? <p className="error-banner shell-banner">{errorMessage}</p> : null}
+
+          {renderActiveWorkspacePanel()}
         </div>
-      </section>
-
-      {renderActiveWorkspacePanel()}
+      </div>
 
       <section className="footer-note">
         <p>

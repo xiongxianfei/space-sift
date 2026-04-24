@@ -244,6 +244,16 @@ describe("Space Sift results explorer", () => {
       ),
     ).toBeInTheDocument();
 
+    const explorerPanel = screen.getByRole("tabpanel", { name: "Explorer" });
+    const browseableRegion = within(explorerPanel).getByRole("region", {
+      name: /read-only browseable result/i,
+    });
+    expect(within(browseableRegion).getByText(/current location/i)).toBeInTheDocument();
+    expect(within(browseableRegion).getByRole("button", { name: /sort by size/i })).toBeInTheDocument();
+    expect(
+      within(browseableRegion).getByRole("table", { name: /current folder contents/i }),
+    ).toBeInTheDocument();
+
     expect(screen.getByRole("button", { name: /downloads/i })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: /current folder contents/i })).toBeInTheDocument();
 
@@ -359,6 +369,9 @@ describe("Space Sift results explorer", () => {
 
     expect(
       screen.getByText(/saved before folder browsing support/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: /summary-only scan compatibility/i }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("table", { name: /current folder contents/i }),

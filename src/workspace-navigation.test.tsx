@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -244,7 +245,13 @@ function makeCleanupPreview(scanId = "scan-shell"): CleanupPreview {
         sourceLabels: ["Files in Temp folders"],
       },
     ],
-    issues: [],
+    issues: [
+      {
+        path: "C:\\Users\\xiongxianfei\\Downloads\\Windows\\protected.log",
+        code: "requires_elevation",
+        summary: "Protected path requires a separate elevated flow.",
+      },
+    ],
   };
 }
 
@@ -428,6 +435,14 @@ function getStatusRegion() {
   return screen.getByRole("region", { name: /global status/i });
 }
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: width,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 async function activateWorkspace(label: string) {
   fireEvent.click(screen.getByRole("tab", { name: label }));
   await waitFor(() => {
@@ -545,6 +560,289 @@ describe("Space Sift workspace navigation shell", () => {
     expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
     expect(screen.getByRole("tabpanel", { name: "Safety" })).toBeInTheDocument();
     expect(screen.queryByRole("tabpanel", { name: "Overview" })).not.toBeInTheDocument();
+  });
+
+  it("workspace_shell_uses_persistent_header_left_rail_and_active_panel_layout", async () => {
+    render(<App client={createWorkspaceClient()} />);
+
+    await waitForWorkspaceShell();
+
+    const banner = screen.getByRole("banner");
+    expect(within(banner).getByRole("heading", { name: "Space Sift" })).toBeInTheDocument();
+    expect(within(banner).queryByText(/desktop bridge connected/i)).not.toBeInTheDocument();
+    expect(within(banner).getByText(/recycle bin first/i)).toBeInTheDocument();
+    expect(within(banner).getByText(/local sqlite history/i)).toBeInTheDocument();
+
+    const workspaceNavigation = screen.getByRole("navigation", {
+      name: /workspace navigation/i,
+    });
+    const tablist = within(workspaceNavigation).getByRole("tablist", {
+      name: /workspace navigation/i,
+    });
+    expect(tablist).toHaveAttribute("aria-orientation", "vertical");
+
+    for (const label of [
+      "Overview",
+      "Scan",
+      "History",
+      "Explorer",
+      "Duplicates",
+      "Cleanup",
+      "Safety",
+    ]) {
+      const tab = within(tablist).getByRole("tab", { name: label });
+      expect(tab).toHaveTextContent(label);
+      expect(tab).toHaveTextContent(/\S/);
+    }
+
+    const contentRegion = screen.getByRole("region", { name: /active workspace content/i });
+    expect(within(contentRegion).getByRole("tabpanel", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+  });
+
+  it("workspace_shell_styles_define_design_breakpoints", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+
+    expect(appCss).toMatch(/@media\s*\(\s*max-width:\s*1050px\s*\)/);
+    expect(appCss).toMatch(/@media\s*\(\s*max-width:\s*640px\s*\)/);
+    expect(appCss).toMatch(/grid-template-columns:\s*260px\s+minmax\(0,\s*1fr\)/);
+  });
+
+  it("workspace_shell_styles_preserve_focus_visible_treatments", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+
+    expect(appCss).toMatch(/\.workspace-tab:focus-visible/);
+    expect(appCss).toMatch(/\.primary-button:focus-visible/);
+    expect(appCss).toMatch(/\.secondary-button:focus-visible/);
+    expect(appCss).toMatch(/\.breadcrumb-button:focus-visible/);
+    expect(appCss).toMatch(/input:focus-visible/);
+    expect(appCss).toMatch(/select:focus-visible/);
+    expect(appCss).toMatch(/textarea:focus-visible/);
+  });
+
+  it("workspace_shell_styles_do_not_force_normal_shell_copy_to_break_inside_words", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+    const currentPathRule = appCss.match(/\.current-path\s*\{[^}]*\}/)?.[0] ?? "";
+
+    expect(currentPathRule).not.toMatch(/word-break:\s*break-all/);
+    expect(currentPathRule).toMatch(/overflow-wrap:\s*break-word/);
+    expect(currentPathRule).toMatch(/word-break:\s*normal/);
+  });
+
+  it("workspace_shell_keeps_required_content_available_at_contract_widths", async () => {
+    const originalWidth = window.innerWidth;
+    const client = createWorkspaceClient({
+      scanStatus: makeCompletedStatus(),
+      scan: makeBrowseableScan(),
+      cleanupRules: makeCleanupRules(),
+    });
+
+    render(<App client={client} />);
+
+    await waitForWorkspaceShell();
+
+    for (const width of [1280, 900, 560]) {
+      setViewportWidth(width);
+
+      for (const label of [
+        "Overview",
+        "Scan",
+        "History",
+        "Explorer",
+        "Duplicates",
+        "Cleanup",
+        "Safety",
+      ]) {
+        expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+      }
+
+      expect(getStatusRegion()).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /find duplicates|start a scan/i })).toBeInTheDocument();
+
+      await activateWorkspace("Cleanup");
+      expect(screen.getByRole("button", { name: /refresh cleanup preview/i })).toBeInTheDocument();
+      expect(screen.getByText(/built-in cleanup rules/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/recycle bin/i).length).toBeGreaterThan(0);
+
+      await activateWorkspace("Overview");
+      expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+    }
+
+    setViewportWidth(originalWidth);
+
+    expect(client.startScan).not.toHaveBeenCalled();
+    expect(client.previewCleanup).not.toHaveBeenCalled();
+    expect(client.executeCleanup).not.toHaveBeenCalled();
+    expect(client.resumeScanRun).not.toHaveBeenCalled();
+  }, uiReadyTimeout * 3);
+
+  it("responsive_width_bands_keep_continuity_cleanup_and_review_state_available", async () => {
+    const originalWidth = window.innerWidth;
+    const client = createWorkspaceClient({
+      scanStatus: makeCompletedStatus(),
+      scan: makeBrowseableScan(),
+      cleanupRules: makeCleanupRules(),
+      scanRuns: [makeInterruptedRunSummary()],
+    });
+
+    render(<App client={client} />);
+
+    await waitForWorkspaceShell();
+
+    await activateWorkspace("Cleanup");
+    fireEvent.click(screen.getByLabelText(/files in temp folders/i));
+    fireEvent.click(screen.getByRole("button", { name: /refresh cleanup preview/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: /cleanup preview review/i })).toBeInTheDocument();
+    });
+
+    for (const width of [1280, 900, 560]) {
+      setViewportWidth(width);
+
+      for (const label of [
+        "Overview",
+        "Scan",
+        "History",
+        "Explorer",
+        "Duplicates",
+        "Cleanup",
+        "Safety",
+      ]) {
+        expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+      }
+
+      expect(getStatusRegion()).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /review cleanup preview|find duplicates|start a scan/i }),
+      ).toBeInTheDocument();
+
+      await activateWorkspace("History");
+      const historyPanel = screen.getByRole("tabpanel", { name: "History" });
+      const interruptedRegion = within(historyPanel).getByRole("region", {
+        name: /interrupted run continuity/i,
+      });
+      expect(interruptedRegion).toHaveTextContent(/run-stale/i);
+      expect(interruptedRegion).toHaveTextContent(/D:\\Archive/i);
+      expect(interruptedRegion).toHaveTextContent(/65%/i);
+      expect(interruptedRegion).toHaveTextContent(/resume unavailable/i);
+      expect(
+        within(interruptedRegion).getByRole("button", { name: /resume run run-stale/i }),
+      ).toBeDisabled();
+
+      await activateWorkspace("Cleanup");
+      const cleanupPanel = screen.getByRole("tabpanel", { name: "Cleanup" });
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /cleanup source selection/i }),
+      ).toBeInTheDocument();
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /cleanup preview review/i }),
+      ).toHaveTextContent(/1 cleanup candidates/i);
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /cleanup validation issues/i }),
+      ).toHaveTextContent(/protected path requires a separate elevated flow/i);
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /recycle bin cleanup action/i }),
+      ).toHaveTextContent(/move selected files to recycle bin/i);
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /advanced permanent delete/i }),
+      ).toHaveTextContent(/permanent delete cannot be undone/i);
+    }
+
+    setViewportWidth(originalWidth);
+
+    expect(client.startScan).not.toHaveBeenCalled();
+    expect(client.startDuplicateAnalysis).not.toHaveBeenCalled();
+    expect(client.executeCleanup).not.toHaveBeenCalled();
+    expect(client.resumeScanRun).not.toHaveBeenCalled();
+  }, uiReadyTimeout);
+
+  it("safety_panel_keeps_approved_durable_guidance", async () => {
+    render(<App client={createWorkspaceClient()} />);
+
+    await activateWorkspace("Safety");
+
+    const safetyPanel = screen.getByRole("tabpanel", { name: "Safety" });
+    const guidanceRegion = within(safetyPanel).getByRole("region", {
+      name: /safety guidance/i,
+    });
+
+    expect(guidanceRegion).toHaveTextContent(/unprivileged/i);
+    expect(guidanceRegion).toHaveTextContent(/recycle bin/i);
+    expect(guidanceRegion).toHaveTextContent(/local sqlite history/i);
+    expect(guidanceRegion).toHaveTextContent(/protected-path cleanup/i);
+    expect(guidanceRegion).toHaveTextContent(/permanent delete/i);
+    expect(guidanceRegion).toHaveTextContent(/resume actions use can_resume/i);
+    expect(guidanceRegion).not.toHaveTextContent(/sample|prototype|cloud sync|telemetry/i);
+  });
+
+  it("overview_metrics_render_real_or_explicit_empty_states", async () => {
+    render(<App client={createWorkspaceClient()} />);
+
+    await waitForWorkspaceShell();
+
+    const emptyMetrics = screen.getByRole("region", { name: /overview metrics/i });
+    expect(within(emptyMetrics).getByRole("article", { name: /total bytes metric/i })).toHaveTextContent(
+      /not yet run/i,
+    );
+    expect(within(emptyMetrics).getByRole("article", { name: /total files metric/i })).toHaveTextContent(
+      /not yet run/i,
+    );
+    expect(within(emptyMetrics).getByRole("article", { name: /duplicate reclaimable metric/i })).toHaveTextContent(
+      /not analyzed/i,
+    );
+    expect(within(emptyMetrics).getByRole("article", { name: /cleanup candidates metric/i })).toHaveTextContent(
+      /preview not generated/i,
+    );
+    expect(emptyMetrics).not.toHaveTextContent(/1\.2 tb|47,000|sample|prototype/i);
+  });
+
+  it("overview_metrics_use_loaded_scan_values_when_available", async () => {
+    render(
+      <App
+        client={createWorkspaceClient({
+          scanStatus: makeCompletedStatus(),
+          scan: makeBrowseableScan(),
+        })}
+      />,
+    );
+
+    await waitForWorkspaceShell();
+
+    const metrics = screen.getByRole("region", { name: /overview metrics/i });
+    await waitFor(() => {
+      expect(within(metrics).getByRole("article", { name: /total bytes metric/i })).toHaveTextContent(
+        /4096 bytes/i,
+      );
+      expect(within(metrics).getByRole("article", { name: /total files metric/i })).toHaveTextContent(
+        /^total files\s*3/i,
+      );
+    });
+  });
+
+  it("scan_panel_groups_command_progress_and_running_context", async () => {
+    render(<App client={createWorkspaceClient({ scanStatus: makeRunningStatus() })} />);
+
+    await activateWorkspace("Scan");
+
+    const scanPanel = screen.getByRole("tabpanel", { name: "Scan" });
+    const commandRegion = within(scanPanel).getByRole("region", {
+      name: /scan command and progress/i,
+    });
+    expect(within(commandRegion).getByLabelText(/scan root/i)).toBeInTheDocument();
+    expect(within(commandRegion).getByRole("button", { name: /start scan/i })).toBeInTheDocument();
+    expect(within(commandRegion).getByRole("button", { name: /cancel scan/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(commandRegion).getByText(/running/i)).toBeInTheDocument();
+      expect(within(commandRegion).getByText(/2048 bytes processed/i)).toBeInTheDocument();
+      expect(within(commandRegion).getByText(/c:\\users\\xiongxianfei\\downloads/i)).toBeInTheDocument();
+    });
+
+    expect(within(scanPanel).getByRole("region", { name: /active scan details/i })).toBeInTheDocument();
   });
 
   it("global_status_visible_on_all_workspaces", async () => {
