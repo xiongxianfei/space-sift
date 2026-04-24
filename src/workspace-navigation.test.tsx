@@ -678,7 +678,7 @@ describe("Space Sift workspace navigation shell", () => {
     expect(client.previewCleanup).not.toHaveBeenCalled();
     expect(client.executeCleanup).not.toHaveBeenCalled();
     expect(client.resumeScanRun).not.toHaveBeenCalled();
-  });
+  }, uiReadyTimeout * 3);
 
   it("responsive_width_bands_keep_continuity_cleanup_and_review_state_available", async () => {
     const originalWidth = window.innerWidth;

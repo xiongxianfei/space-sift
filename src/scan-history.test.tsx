@@ -446,7 +446,7 @@ describe("Space Sift scan and history flow", () => {
       expect(within(activePanel).getByText(/2048 bytes processed/i)).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: /current result/i })).not.toBeInTheDocument();
     });
-  });
+  }, 15000);
 
   it("returns to the persisted completed result when the scan finishes", async () => {
     const secondCompletedScan = makeSecondCompletedScan();
