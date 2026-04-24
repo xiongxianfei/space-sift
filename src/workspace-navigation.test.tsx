@@ -245,7 +245,13 @@ function makeCleanupPreview(scanId = "scan-shell"): CleanupPreview {
         sourceLabels: ["Files in Temp folders"],
       },
     ],
-    issues: [],
+    issues: [
+      {
+        path: "C:\\Users\\xiongxianfei\\Downloads\\Windows\\protected.log",
+        code: "requires_elevation",
+        summary: "Protected path requires a separate elevated flow.",
+      },
+    ],
   };
 }
 
@@ -602,6 +608,27 @@ describe("Space Sift workspace navigation shell", () => {
     expect(appCss).toMatch(/grid-template-columns:\s*260px\s+minmax\(0,\s*1fr\)/);
   });
 
+  it("workspace_shell_styles_preserve_focus_visible_treatments", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+
+    expect(appCss).toMatch(/\.workspace-tab:focus-visible/);
+    expect(appCss).toMatch(/\.primary-button:focus-visible/);
+    expect(appCss).toMatch(/\.secondary-button:focus-visible/);
+    expect(appCss).toMatch(/\.breadcrumb-button:focus-visible/);
+    expect(appCss).toMatch(/input:focus-visible/);
+    expect(appCss).toMatch(/select:focus-visible/);
+    expect(appCss).toMatch(/textarea:focus-visible/);
+  });
+
+  it("workspace_shell_styles_do_not_force_normal_shell_copy_to_break_inside_words", () => {
+    const appCss = readFileSync("src/App.css", "utf8");
+    const currentPathRule = appCss.match(/\.current-path\s*\{[^}]*\}/)?.[0] ?? "";
+
+    expect(currentPathRule).not.toMatch(/word-break:\s*break-all/);
+    expect(currentPathRule).toMatch(/overflow-wrap:\s*break-word/);
+    expect(currentPathRule).toMatch(/word-break:\s*normal/);
+  });
+
   it("workspace_shell_keeps_required_content_available_at_contract_widths", async () => {
     const originalWidth = window.innerWidth;
     const client = createWorkspaceClient({
@@ -652,6 +679,87 @@ describe("Space Sift workspace navigation shell", () => {
     expect(client.executeCleanup).not.toHaveBeenCalled();
     expect(client.resumeScanRun).not.toHaveBeenCalled();
   });
+
+  it("responsive_width_bands_keep_continuity_cleanup_and_review_state_available", async () => {
+    const originalWidth = window.innerWidth;
+    const client = createWorkspaceClient({
+      scanStatus: makeCompletedStatus(),
+      scan: makeBrowseableScan(),
+      cleanupRules: makeCleanupRules(),
+      scanRuns: [makeInterruptedRunSummary()],
+    });
+
+    render(<App client={client} />);
+
+    await waitForWorkspaceShell();
+
+    await activateWorkspace("Cleanup");
+    fireEvent.click(screen.getByLabelText(/files in temp folders/i));
+    fireEvent.click(screen.getByRole("button", { name: /refresh cleanup preview/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: /cleanup preview review/i })).toBeInTheDocument();
+    });
+
+    for (const width of [1280, 900, 560]) {
+      setViewportWidth(width);
+
+      for (const label of [
+        "Overview",
+        "Scan",
+        "History",
+        "Explorer",
+        "Duplicates",
+        "Cleanup",
+        "Safety",
+      ]) {
+        expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
+      }
+
+      expect(getStatusRegion()).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /review cleanup preview|find duplicates|start a scan/i }),
+      ).toBeInTheDocument();
+
+      await activateWorkspace("History");
+      const historyPanel = screen.getByRole("tabpanel", { name: "History" });
+      const interruptedRegion = within(historyPanel).getByRole("region", {
+        name: /interrupted run continuity/i,
+      });
+      expect(interruptedRegion).toHaveTextContent(/run-stale/i);
+      expect(interruptedRegion).toHaveTextContent(/D:\\Archive/i);
+      expect(interruptedRegion).toHaveTextContent(/65%/i);
+      expect(interruptedRegion).toHaveTextContent(/resume unavailable/i);
+      expect(
+        within(interruptedRegion).getByRole("button", { name: /resume run run-stale/i }),
+      ).toBeDisabled();
+
+      await activateWorkspace("Cleanup");
+      const cleanupPanel = screen.getByRole("tabpanel", { name: "Cleanup" });
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /cleanup source selection/i }),
+      ).toBeInTheDocument();
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /cleanup preview review/i }),
+      ).toHaveTextContent(/1 cleanup candidates/i);
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /cleanup validation issues/i }),
+      ).toHaveTextContent(/protected path requires a separate elevated flow/i);
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /recycle bin cleanup action/i }),
+      ).toHaveTextContent(/move selected files to recycle bin/i);
+      expect(
+        within(cleanupPanel).getByRole("region", { name: /advanced permanent delete/i }),
+      ).toHaveTextContent(/permanent delete cannot be undone/i);
+    }
+
+    setViewportWidth(originalWidth);
+
+    expect(client.startScan).not.toHaveBeenCalled();
+    expect(client.startDuplicateAnalysis).not.toHaveBeenCalled();
+    expect(client.executeCleanup).not.toHaveBeenCalled();
+    expect(client.resumeScanRun).not.toHaveBeenCalled();
+  }, uiReadyTimeout);
 
   it("safety_panel_keeps_approved_durable_guidance", async () => {
     render(<App client={createWorkspaceClient()} />);

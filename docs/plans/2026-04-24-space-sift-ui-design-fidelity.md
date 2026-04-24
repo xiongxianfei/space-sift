@@ -292,8 +292,8 @@ release automation.
 - [x] M1 complete
 - [x] M2 complete
 - [x] M3 complete
-- [ ] M4 complete
-- [ ] Branch-wide verification complete
+- [x] M4 complete
+- [x] Branch-wide verification complete
 
 ## Decision log
 
@@ -338,6 +338,21 @@ release automation.
     guidance needed prototype-aligned structure while preserving Recycle Bin
     priority, permanent-delete gating, protected-path exclusion, and
     `can_resume` actionability.
+- 2026-04-24: Implemented M4 with responsive DOM proof, browser screenshot
+  evidence, and final shell hardening.
+  - Reason: the final milestone needed reviewer-visible evidence at the
+    accepted `1280`, `900`, and `560` app-window widths plus automated proof
+    that status, continuity, cleanup guardrails, and next-safe-action content
+    remain available across those width bands.
+- 2026-04-24: Use a runtime-selected client for browser visual review.
+  - Reason: the plain Vite browser used for screenshots is not a Tauri
+    runtime, so it must use the existing unsupported client instead of calling
+    `invoke` without Tauri internals.
+- 2026-04-24: Replace `.current-path` `word-break: break-all` with
+  path-friendly `overflow-wrap: break-word` plus normal word breaking.
+  - Reason: M4 screenshot review found normal shell copy breaking inside short
+    words in metric cards, while long path text still needs overflow-safe
+    wrapping.
 
 ## Surprises and discoveries
 
@@ -357,6 +372,17 @@ release automation.
 - M3 did not require backend, persistence, cleanup capability, or duplicate
   selection changes. The existing workflow state already provided the needed
   guardrails; the implementation made the review stages explicit and testable.
+- Browser screenshot review initially exposed a plain-browser runtime issue:
+  `main.tsx` always selected the Tauri client, causing an `invoke` error banner
+  outside Tauri. The fix preserves the Tauri client inside Tauri and degrades
+  to the existing unsupported client in browser review.
+- The first M4 Chrome screenshot pass also exposed normal text breaking inside
+  words because `.current-path` used `word-break: break-all`. The rule was
+  narrowed to keep normal copy readable while still handling long path text.
+- The first CI-parity run failed because the screenshot Vite server child
+  process kept `node_modules\@esbuild\win32-x64\esbuild.exe` locked. Stopping
+  only the local screenshot server processes cleared the lock, and the retry
+  passed.
 
 ## Aligned-surface audit
 
@@ -387,6 +413,13 @@ release automation.
 - Visual screenshot evidence: still unaffected with rationale for M3 closeout.
   M4 owns final screenshot or human-visible comparison across the required
   width bands.
+- `src-tauri/`: unaffected with rationale for M4. Product code changes were
+  limited to frontend runtime client selection, CSS, frontend tests, and
+  visual evidence artifacts; no Tauri command, event, persistence, scan,
+  duplicate, cleanup, or resume contract changed.
+- Visual screenshot evidence: produced for M4 at `1280`, `900`, and `560`
+  app-window widths, with matching prototype reference screenshots in
+  [docs/changes/2026-04-24-ui-design-fidelity-m4/screenshots](/D:/Data/20260415-space-sift/docs/changes/2026-04-24-ui-design-fidelity-m4/screenshots:1).
 
 ## Validation notes
 
@@ -490,6 +523,86 @@ release automation.
     protected-path visible issue summary
 - 2026-04-24: `npm run build`
   - passed after M3 validation fixes
+- 2026-04-24: `npm run test -- src/workspace-navigation.test.tsx`
+  - failed once after adding the M4 responsive state test
+  - exact failure: the new test expected a `/resume disabled/i` accessible
+    name, while the disabled button is correctly named `Resume run run-stale`
+    and the explanatory copy says `Resume unavailable`
+  - fixed the test expectation without production changes
+- 2026-04-24: `npm run test -- src/workspace-navigation.test.tsx`
+  - failed once after adding the M4 focus-visible stylesheet contract
+  - expected failure: `.primary-button:focus-visible` and related shared
+    control focus styles were missing
+  - fixed by adding focus-visible outlines for primary, secondary,
+    breadcrumb, input, select, and textarea controls
+- 2026-04-24: `npm run test -- src/lib/runtimeSpaceSiftClient.test.ts`
+  - failed before production code existed
+  - expected failure: `./runtimeSpaceSiftClient` import could not resolve
+  - fixed by adding `getRuntimeSpaceSiftClient()` and wiring `main.tsx` through
+    it
+- 2026-04-24: Browser screenshot review with local Vite and Chrome headless
+  - first app screenshots at `1280`, `900`, and `560` captured a visible
+    browser-only `Cannot read properties of undefined (reading 'invoke')`
+    banner
+  - fixed by selecting the unsupported client outside Tauri and recapturing
+    the app screenshots
+- 2026-04-24: `npm run test -- src/workspace-navigation.test.tsx`
+  - failed once after adding the `.current-path` wrapping contract
+  - expected failure: `.current-path` still used `word-break: break-all`
+  - fixed by changing the rule to `overflow-wrap: break-word` and
+    `word-break: normal`
+- 2026-04-24: `npm run test -- src/workspace-navigation.test.tsx`
+  - passed after M4 implementation
+  - result: 43 tests passed
+- 2026-04-24: `npm run test -- src/lib/runtimeSpaceSiftClient.test.ts`
+  - passed after M4 implementation
+  - result: 2 tests passed
+- 2026-04-24: `npm run test -- src/scan-history.test.tsx`
+  - passed after M4 implementation
+  - result: 11 tests passed
+- 2026-04-24: `npm run test -- src/results-explorer.test.tsx`
+  - passed after M4 implementation
+  - result: 5 tests passed
+- 2026-04-24: `npm run test -- src/duplicates.test.tsx`
+  - passed after M4 implementation
+  - result: 12 tests passed
+- 2026-04-24: `npm run test -- src/cleanup.test.tsx`
+  - passed after M4 implementation
+  - result: 6 tests passed
+- 2026-04-24: Chrome headless visual evidence capture
+  - passed after runtime-client and wrapping fixes
+  - command shape: local Vite dev server at `http://127.0.0.1:4174/` plus
+    Chrome headless screenshots at `1280x1100`, `900x1100`, and `560x1100`
+  - app artifacts:
+    [app-1280.png](/D:/Data/20260415-space-sift/docs/changes/2026-04-24-ui-design-fidelity-m4/screenshots/app-1280.png:1),
+    [app-900.png](/D:/Data/20260415-space-sift/docs/changes/2026-04-24-ui-design-fidelity-m4/screenshots/app-900.png:1),
+    [app-560.png](/D:/Data/20260415-space-sift/docs/changes/2026-04-24-ui-design-fidelity-m4/screenshots/app-560.png:1)
+  - prototype reference artifacts:
+    [prototype-1280.png](/D:/Data/20260415-space-sift/docs/changes/2026-04-24-ui-design-fidelity-m4/screenshots/prototype-1280.png:1),
+    [prototype-900.png](/D:/Data/20260415-space-sift/docs/changes/2026-04-24-ui-design-fidelity-m4/screenshots/prototype-900.png:1),
+    [prototype-560.png](/D:/Data/20260415-space-sift/docs/changes/2026-04-24-ui-design-fidelity-m4/screenshots/prototype-560.png:1)
+  - visual review result: no visible invoke error banner; the shell follows
+    the desktop rail, medium stacked, and small single-column structures; no
+    known overlap or hidden default shell status/action content was observed
+- 2026-04-24: `npm run lint`
+  - passed after M4 implementation
+- 2026-04-24: `npm run test`
+  - passed after M4 implementation
+  - result: 8 test files passed, 87 tests passed
+- 2026-04-24: `npm run build`
+  - passed after M4 implementation
+- 2026-04-24: `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1`
+  - failed once before retry
+  - exact failure: `npm ci` failed with `EPERM: operation not permitted,
+    unlink 'D:\Data\20260415-space-sift\node_modules\@esbuild\win32-x64\esbuild.exe'`
+  - cause found: leftover local Vite screenshot server processes (`npm run
+    dev`, Vite, and esbuild service) held the file lock
+  - recovery: stopped only those local screenshot-server processes
+- 2026-04-24: `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1`
+  - passed after clearing the local file lock
+  - important coverage: `npm ci`, `npm run lint`, `npm run test`,
+    `npm run build`, and `cargo check --manifest-path src-tauri/Cargo.toml`
+    completed
 
 ## Outcome and retrospective
 
@@ -509,10 +622,17 @@ release automation.
   and advanced permanent-delete stages; Safety now presents durable local,
   unprivileged, Recycle Bin, protected-path, permanent-delete, and resume
   guidance.
+- M4 is implemented and validation-complete. Responsive automated coverage now
+  checks required state availability at `1280`, `900`, and `560` widths;
+  shared focus-visible treatment and shell-copy wrapping are hardened; browser
+  visual evidence is recorded for the shipped shell and prototype references;
+  and plain-browser visual review degrades through the unsupported client
+  instead of surfacing a Tauri `invoke` error.
 
 ## Readiness
 
-This plan is active. M3 is implemented and ready for code review.
+This plan is active. M4 is implemented and ready for code review.
 
-M4 remains unstarted. Branch-wide readiness is blocked until the remaining
-milestone is implemented and final visual verification is recorded.
+Branch-wide local verification passed through the canonical CI-parity command,
+including frontend and Rust checks. The initiative should remain active until
+M4 code review is complete.

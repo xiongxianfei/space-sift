@@ -451,6 +451,16 @@ select {
   transform: translateY(-1px);
 }
 
+.primary-button:focus-visible,
+.secondary-button:focus-visible,
+.breadcrumb-button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(114, 224, 195, 0.8);
+  outline-offset: 3px;
+}
+
 .primary-button:disabled,
 .secondary-button:disabled {
   cursor: not-allowed;
@@ -672,7 +682,8 @@ select {
 .current-path {
   margin-top: 8px;
   font-size: 0.95rem;
-  word-break: break-all;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .results-table {

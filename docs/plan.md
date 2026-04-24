@@ -15,7 +15,7 @@ This file tracks active, blocked, done, and superseded plans.
     structure, responsive breakpoints, panel hierarchy, duplicate-review cards,
     cleanup funnel, and visual verification contract without changing backend
     behavior
-  - next: hand M3 to code review before starting M4
+  - next: hand M4 to code review before closing the initiative as done
 ## Blocked
 - [2026-04-16-history-and-duplicate-review-clarity.md](plans/2026-04-16-history-and-duplicate-review-clarity.md)
   - status: blocked

@@ -1,0 +1,10 @@
+change_id: 2026-04-24-ui-design-fidelity-m4
+title: Verify responsive design fidelity
+status: implemented
+implemented_on: 2026-04-24
+plan: docs/plans/2026-04-24-space-sift-ui-design-fidelity.md
+summary:
+  - Add automated responsive proof that status, continuity, cleanup guardrails, and next-safe-action content remain available at 1280, 900, and 560 CSS pixels.
+  - Harden shared focus-visible styles and normal shell-copy wrapping discovered during visual review.
+  - Select the unsupported client outside Tauri so plain-browser visual review does not show a Tauri invoke error.
+  - Record browser screenshot evidence for the shipped shell and prototype reference at the required width bands.
